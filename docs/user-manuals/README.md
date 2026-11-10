@@ -1,3 +1,3 @@
 ﻿# User manuals
 
-This folder is reserved for end-user and administrator reference material.
+- [Enumerator User Manual](./user-manual.md): student registration, offline submissions, synchronization, and conflict handling.
