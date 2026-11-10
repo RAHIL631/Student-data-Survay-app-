@@ -75,6 +75,43 @@ export type StudentRecord = {
   status: 'Pending' | 'Reviewed' | 'Synced';
 };
 
+export type PendingStudentSubmissionData = {
+  organizationId: string;
+  userId: string;
+  sessionId: string;
+  student: StudentRecord;
+};
+
+export type PendingStudentSubmission = {
+  localId: string;
+  idempotencyKey: string;
+  data: PendingStudentSubmissionData;
+  createdAt: string;
+  syncStatus: 'pending' | 'syncing' | 'synced' | 'failed' | 'conflict' | 'resolved';
+  attemptCount: number;
+  nextRetryAt?: string;
+  retryable?: boolean;
+  lastError?: string;
+  syncToken?: string;
+  leaseExpiresAt?: string;
+  syncedAt?: string;
+  conflictType?: 'server_record_changed' | 'si_number_conflict' | 'duplicate_unverified';
+  conflictMessage?: string;
+  serverRecord?: {
+    id: string;
+    studentName: string;
+    siNumber: string;
+    dateOfBirth: string | null;
+    sessionId: string | null;
+    screeningDate: string;
+    status: string;
+    heightCm: number | null;
+    weightKg: number | null;
+  };
+  resolution?: 'keep_server';
+  resolvedAt?: string;
+};
+
 export type AuditLog = {
   id: string;
   actor: string;

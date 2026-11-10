@@ -1,11 +1,16 @@
-# Offline synchronization design
+# Offline synchronization
 
-This project is designed around an offline-first flow for enumerators working in schools with unreliable connectivity. Records are stored locally and synchronized when connectivity is restored. The workflow includes:
+Student screening submissions created without connectivity are retained in IndexedDB and synchronized through the signed-in Supabase client when connectivity returns. The client never uses a service-role key; existing authentication and row-level security policies continue to apply.
 
-- local queueing of student submissions
-- idempotency keys for safe replays
-- retry backoff policy
-- conflict visibility for server-side changes
-- secure session expiry and local cache cleanup policies
+Each queued submission has a stable UUID used as its `student_screenings.id` on every attempt. The database primary key and existing `(organization_id, si_number)` unique constraint protect against duplicate inserts. When Supabase reports a duplicate, the app performs organization-scoped reads subject to RLS:
 
-The application does not silently overwrite newer server state. When the Supabase environment is configured, the sync layer can use authenticated API calls to push queued records and reconcile conflicts.
+- If the row with the saved UUID matches the queued submission, the retry is treated as already saved.
+- If that UUID now identifies different data, the item is marked as a **server record changed** conflict.
+- If the SI number identifies different data, the item is marked as an **SI number conflict**.
+- If RLS prevents verification, the item remains an **unverified conflict**; it is not treated as synced.
+
+Conflicts are preserved in IndexedDB and are not retried automatically. The registration page shows local and readable server details. An enumerator may explicitly acknowledge the server version; this marks the local item resolved but retains its local payload and does not send or overwrite either record. If the correct choice is uncertain, leave the conflict unresolved and ask an organization administrator to review it.
+
+Temporary network and server errors remain retryable with exponential backoff. Validation, authorization, and conflict errors are not retried automatically. A successful response or verified exact duplicate is required before a queued item is marked synced.
+
+The current flow handles new student submissions, not offline editing. No database migration or RLS policy change is required for this behavior.

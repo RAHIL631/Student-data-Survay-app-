@@ -1,5 +1,6 @@
 import type { PostgrestError } from '@supabase/supabase-js';
 import type { AppUser, AuditLog, District, School, ScreeningSession, StudentRecord, Taluk } from '../types';
+import { verifyDuplicateStudentSubmission } from './studentSubmissionIdempotency.js';
 import { requireSupabase } from './supabase';
 import {
   getLocalTestAuditLogs,
@@ -392,7 +393,7 @@ export async function createStudentScreening(input: {
   userId: string;
   sessionId: string;
   student: StudentRecord;
-}): Promise<void> {
+}, options?: { idempotencyKey?: string }): Promise<void> {
   if (isLocalTestSessionActive()) {
     const session = getLocalTestSessions().find((item) => item.id === input.sessionId);
     if (!session || !session.enumerators.includes(input.userId)) {
@@ -403,7 +404,9 @@ export async function createStudentScreening(input: {
   }
 
   const student = input.student;
-  const { error } = await requireSupabase().from('student_screenings').insert({
+  const client = requireSupabase();
+  const { error, status } = await client.from('student_screenings').insert({
+    ...(options?.idempotencyKey ? { id: options.idempotencyKey } : {}),
     organization_id: input.organizationId,
     created_by: input.userId,
     session_id: input.sessionId,
@@ -429,7 +432,49 @@ export async function createStudentScreening(input: {
     status: 'Pending',
   });
 
-  throwIfError(error);
+  if (error) {
+    if (error.code === '23505') {
+      await verifyDuplicateStudentSubmission(
+        { ...input, ...(options?.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}) },
+        async (organizationId, id) => {
+          if (!options?.idempotencyKey) {
+            return null;
+          }
+          const { data, error: lookupError, status: lookupStatus } = await client
+            .from('student_screenings')
+            .select('id, organization_id, created_by, session_id, district_id, taluk_id, school_id, si_number, student_name, class_name, section, sex, date_of_birth, age, height_cm, weight_kg, bmi, skeletal_deformity, skeletal_observation, skin_thickness_mm, mid_arm_circumference_cm, additional_remarks, screening_date, status')
+            .eq('organization_id', organizationId)
+            .eq('id', id)
+            .maybeSingle();
+          if (lookupError) {
+            const lookupFailure = new Error(lookupError.message);
+            Object.assign(lookupFailure, { code: lookupError.code, status: lookupStatus });
+            throw lookupFailure;
+          }
+          return data;
+        },
+        async (organizationId, siNumber) => {
+          const { data, error: lookupError, status: lookupStatus } = await client
+            .from('student_screenings')
+            .select('id, organization_id, created_by, session_id, district_id, taluk_id, school_id, si_number, student_name, class_name, section, sex, date_of_birth, age, height_cm, weight_kg, bmi, skeletal_deformity, skeletal_observation, skin_thickness_mm, mid_arm_circumference_cm, additional_remarks, screening_date, status')
+            .eq('organization_id', organizationId)
+            .eq('si_number', siNumber)
+            .maybeSingle();
+          if (lookupError) {
+            const lookupFailure = new Error(lookupError.message);
+            Object.assign(lookupFailure, { code: lookupError.code, status: lookupStatus });
+            throw lookupFailure;
+          }
+          return data;
+        },
+      );
+      return;
+    }
+
+    const submissionError = new Error(error.message);
+    Object.assign(submissionError, { code: error.code, status });
+    throw submissionError;
+  }
 }
 
 export async function getDashboardSummary(): Promise<{
