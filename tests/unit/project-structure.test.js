@@ -16,7 +16,9 @@ const requiredDirectories = [
   'src/context',
   'src/hooks',
   'src/lib',
+  'admin',
   'supabase/migrations',
+  'supabase/functions/admin-provision-user',
   'tests',
   'docs',
   '.github',
@@ -35,13 +37,27 @@ test('entry points exist', () => {
     'src/main.tsx',
     'src/App.tsx',
     'src/lib/dataService.ts',
+    'src/AdminApp.tsx',
+    'src/pages/AdminDashboardPage.tsx',
+    'src/pages/AdminUsersPage.tsx',
+    'src/admin-main.tsx',
+    'admin/index.html',
+    'admin/src/admin-main.tsx',
+    'vite.admin.config.ts',
     'supabase/migrations/002_live_backend.sql',
+    'supabase/migrations/003_role_scope_hardening.sql',
+    'supabase/functions/admin-provision-user/index.ts',
   ];
 
   for (const file of entryFiles) {
     const target = path.join(rootDir, file);
     assert.equal(fs.existsSync(target), true, `Missing file: ${file}`);
   }
+});
+
+test('local test sign-in is restricted to development builds', () => {
+  const localTestMode = fs.readFileSync(path.join(rootDir, 'src/lib/localTestMode.ts'), 'utf8');
+  assert.match(localTestMode, /import\.meta\.env\.DEV/);
 });
 
 test('demo data and placeholder backend clients are absent', () => {

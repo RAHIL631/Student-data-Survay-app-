@@ -10,6 +10,12 @@ export function canAccessRoute(role: Role, routeKey: RouteKey): boolean {
   return roleAccess[role].includes(routeKey);
 }
 
+export function getRoleLabel(role: Role): string {
+  if (role === 'organization_admin') return 'Organization administrator';
+  if (role === 'district_manager') return 'District supervisor';
+  return 'Enumerator';
+}
+
 export function calculateAge(dateOfBirth: string, screeningDate: string): number {
   const birth = new Date(dateOfBirth);
   const screening = new Date(screeningDate);

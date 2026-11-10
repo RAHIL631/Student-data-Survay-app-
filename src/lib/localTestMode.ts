@@ -1,4 +1,4 @@
-import type { AppUser, AuditLog, District, School, ScreeningSession, StudentRecord, Taluk } from '../types';
+import type { AppUser, AuditLog, District, Role, School, ScreeningSession, StudentRecord, Taluk } from '../types';
 import { getLocalDateString } from './date';
 import { isSupabaseConfigured } from './supabase';
 
@@ -6,15 +6,32 @@ const SESSION_KEY = 'student-health-hub.local-test-session';
 const DATA_KEY = 'student-health-hub.local-test-data';
 
 export const isLocalTestLoginEnabled =
-  import.meta.env.VITE_ENABLE_LOCAL_TEST_LOGIN === 'true' && !isSupabaseConfigured;
+  import.meta.env.DEV && import.meta.env.VITE_ENABLE_LOCAL_TEST_LOGIN === 'true' && !isSupabaseConfigured;
 
-const localUser: AppUser = {
-  id: 'local-test-enumerator',
-  organizationId: 'local-test-organization',
-  name: 'Local Test Enumerator',
-  email: 'enumerator@local.test',
-  role: 'enumerator',
-  districtId: 'local-test-district',
+const localUsers: Record<Role, AppUser> = {
+  organization_admin: {
+    id: 'local-test-admin',
+    organizationId: 'local-test-organization',
+    name: 'Local Test Administrator',
+    email: 'admin@local.test',
+    role: 'organization_admin',
+  },
+  district_manager: {
+    id: 'local-test-manager',
+    organizationId: 'local-test-organization',
+    name: 'Local Test District Supervisor',
+    email: 'manager@local.test',
+    role: 'district_manager',
+    districtId: 'local-test-district',
+  },
+  enumerator: {
+    id: 'local-test-enumerator',
+    organizationId: 'local-test-organization',
+    name: 'Local Test Enumerator',
+    email: 'enumerator@local.test',
+    role: 'enumerator',
+    districtId: 'local-test-district',
+  },
 };
 
 const district: District = {
@@ -54,7 +71,7 @@ const session: ScreeningSession = {
   screeningFacultyName: 'Local Test Faculty',
   date: getLocalDateString(),
   status: 'active',
-  enumerators: [localUser.id],
+  enumerators: [localUsers.enumerator.id],
 };
 
 type LocalTestData = {
@@ -91,16 +108,18 @@ function saveData(data: LocalTestData): void {
   localStorage.setItem(DATA_KEY, JSON.stringify(data));
 }
 
-export function startLocalTestSession(): AppUser {
+export function startLocalTestSession(role: Role): AppUser {
   if (!isLocalTestLoginEnabled) {
     throw new Error('Local test sign-in is disabled. Configure VITE_ENABLE_LOCAL_TEST_LOGIN=true with no Supabase credentials.');
   }
-  sessionStorage.setItem(SESSION_KEY, 'enumerator');
-  return localUser;
+  sessionStorage.setItem(SESSION_KEY, role);
+  return localUsers[role];
 }
 
 export function restoreLocalTestSession(): AppUser | null {
-  return isLocalTestLoginEnabled && sessionStorage.getItem(SESSION_KEY) === 'enumerator' ? localUser : null;
+  if (!isLocalTestLoginEnabled) return null;
+  const role = sessionStorage.getItem(SESSION_KEY);
+  return role && role in localUsers ? localUsers[role as Role] : null;
 }
 
 export function endLocalTestSession(): void {
@@ -127,6 +146,10 @@ export function getLocalTestSessions(): ScreeningSession[] {
   return [session];
 }
 
+export function getLocalTestUsers(): AppUser[] {
+  return Object.values(localUsers);
+}
+
 export function getLocalTestStudents(): StudentRecord[] {
   return readData().students;
 }
@@ -144,7 +167,7 @@ export function saveLocalTestStudent(student: StudentRecord, actorId: string): v
   data.students = [student, ...data.students];
   data.auditLogs = [{
     id: crypto.randomUUID(),
-    actor: localUser.name,
+    actor: getLocalTestUsers().find((user) => user.id === actorId)?.name ?? actorId,
     action: 'insert',
     recordType: 'student_screenings',
     timestamp: new Date().toISOString(),
@@ -172,5 +195,9 @@ export function getLocalTestOrganizationName(): string {
 }
 
 export function getLocalTestUser(): AppUser {
-  return localUser;
+  const user = restoreLocalTestSession();
+  if (!user) {
+    throw new Error('No local test user is signed in.');
+  }
+  return user;
 }

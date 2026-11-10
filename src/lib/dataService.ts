@@ -6,6 +6,7 @@ import {
   getLocalTestAuditLogs,
   getLocalTestDashboardSummary,
   getLocalTestDistricts,
+  getLocalTestUsers,
   getLocalTestOrganizationName,
   getLocalTestSchools,
   getLocalTestSessions,
@@ -216,7 +217,7 @@ export async function getStudentRecords(): Promise<StudentRecord[]> {
 
 export async function getEnumerators(): Promise<AppUser[]> {
   if (isLocalTestSessionActive()) {
-    return [getLocalTestUser()];
+    return getLocalTestUsers().filter((user) => user.role === 'enumerator');
   }
 
   const { data, error } = await requireSupabase()
@@ -236,13 +237,55 @@ export async function getEnumerators(): Promise<AppUser[]> {
   }));
 }
 
+export async function getOrganizationUsers(): Promise<AppUser[]> {
+  if (isLocalTestSessionActive()) {
+    return getLocalTestUsers();
+  }
+
+  const { data, error } = await requireSupabase()
+    .from('profiles')
+    .select('id, organization_id, email, full_name, role, district_id')
+    .order('full_name');
+  throwIfError(error);
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    organizationId: row.organization_id,
+    email: row.email,
+    name: row.full_name,
+    role: row.role,
+    districtId: row.district_id ?? undefined,
+  }));
+}
+
+export async function provisionOrganizationUser(input: {
+  fullName: string;
+  email: string;
+  role: 'district_manager' | 'enumerator';
+  districtId: string;
+}): Promise<{ warning?: string }> {
+  if (isLocalTestSessionActive()) {
+    throw new Error('Account invitations are not available in local test mode.');
+  }
+
+  const { data, error } = await requireSupabase().functions.invoke('admin-provision-user', {
+    body: input,
+  });
+  if (error) {
+    throw new Error(error.message);
+  }
+  if (data?.error) {
+    throw new Error(typeof data.error === 'string' ? data.error : 'The invitation could not be sent.');
+  }
+  return { warning: typeof data?.warning === 'string' ? data.warning : undefined };
+}
+
 export async function getAssignments(): Promise<Array<{
   session: ScreeningSession;
   enumerators: AppUser[];
 }>> {
   if (isLocalTestSessionActive()) {
     const sessions = getLocalTestSessions();
-    const enumerators = [getLocalTestUser()];
+    const enumerators = getLocalTestUsers().filter((user) => user.role === 'enumerator');
     return sessions.map((session) => ({ session, enumerators }));
   }
 

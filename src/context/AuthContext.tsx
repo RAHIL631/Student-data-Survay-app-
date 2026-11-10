@@ -1,12 +1,12 @@
 ﻿import { createContext, useContext } from 'react';
-import type { AppUser } from '../types';
+import type { AppUser, Role } from '../types';
 
 export type AuthContextValue = {
   user: AppUser | null;
   isLoading: boolean;
   authError: string | null;
-  login: (email: string, password: string) => Promise<void>;
-  loginAsLocalTestEnumerator: () => Promise<void>;
+  login: (email: string, password: string) => Promise<AppUser>;
+  loginAsLocalTestUser: (role: Role) => Promise<AppUser>;
   logout: () => Promise<void>;
 };
 

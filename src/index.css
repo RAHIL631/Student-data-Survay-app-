@@ -10,11 +10,14 @@
 
 html {
   scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
   min-width: 320px;
+  min-height: 100vh;
+  min-height: 100dvh;
   background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
 }
 
@@ -29,8 +32,17 @@ textarea {
   font: inherit;
 }
 
+input,
+select,
+textarea {
+  max-width: 100%;
+  min-width: 0;
+  font-size: 16px;
+}
+
 .table-shell {
-  @apply overflow-hidden rounded-xl border border-slate-200 bg-white;
+  @apply max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white;
+  -webkit-overflow-scrolling: touch;
 }
 
 .table-shell table {
@@ -47,9 +59,15 @@ textarea {
 }
 
 .card {
-  @apply rounded-2xl border border-slate-200 bg-white p-5 shadow-sm;
+  @apply min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5;
 }
 
 .badge {
   @apply inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold;
+}
+
+@media (max-width: 639px) {
+  .table-shell table {
+    min-width: 36rem;
+  }
 }

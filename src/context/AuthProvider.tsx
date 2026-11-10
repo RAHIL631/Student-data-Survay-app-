@@ -10,6 +10,7 @@ import {
   restoreLocalTestSession,
   startLocalTestSession,
 } from '../lib/localTestMode';
+import type { AppUser, Role } from '../types';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Awaited<ReturnType<typeof getProfile>> | null>(null);
@@ -100,7 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       isLoading,
       authError,
-      login: async (email: string, password: string) => {
+      login: async (email: string, password: string): Promise<AppUser> => {
         if (!supabase) {
           throw new Error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your local .env file.');
         }
@@ -113,13 +114,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const profile = await getProfile(data.user.id);
         setUser(profile);
         setAuthError(null);
+        return profile;
       },
-      loginAsLocalTestEnumerator: async () => {
+      loginAsLocalTestUser: async (role: Role): Promise<AppUser> => {
         if (!isLocalTestLoginEnabled) {
           throw new Error('Temporary local sign-in is not enabled.');
         }
-        setUser(startLocalTestSession());
+        const profile = startLocalTestSession(role);
+        setUser(profile);
         setAuthError(null);
+        return profile;
       },
       logout: async () => {
         if (!supabase) {
@@ -129,6 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
 
+        endLocalTestSession();
         const { error } = await supabase.auth.signOut();
         if (error) {
           throw new Error(error.message);

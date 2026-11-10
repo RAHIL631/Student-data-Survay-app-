@@ -299,13 +299,13 @@ export function StudentRegistrationPage() {
         <label className="block text-sm font-medium text-slate-700">Additional Remarks
           <textarea rows={3} value={form.additionalRemarks} onChange={(event) => handleChange('additionalRemarks', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" />
         </label>
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-slate-600">
             BMI is informational and not diagnostic. {isLocalTestSessionActive() ? 'Local test records stay in this browser and are not sent to Supabase.' : 'Screening data is saved to your organization database.'}
           </p>
-          <div className="flex gap-2">
-            <button type="submit" onClick={() => { saveAnother.current = false; }} disabled={isSaving || isLoading || Boolean(sessionsError) || !selectedSession} className="rounded-xl border border-slate-300 px-4 py-2.5 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">Save student</button>
-            <button type="submit" onClick={() => { saveAnother.current = true; }} disabled={isSaving || isLoading || Boolean(sessionsError) || !selectedSession} className="rounded-xl bg-cyan-600 px-4 py-2.5 font-medium text-white hover:bg-cyan-500 disabled:opacity-50">{isSaving ? 'Saving…' : 'Save & Add Another'}</button>
+          <div className="grid grid-cols-2 gap-2 sm:flex">
+            <button type="submit" onClick={() => { saveAnother.current = false; }} disabled={isSaving || isLoading || Boolean(sessionsError) || !selectedSession} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 sm:px-4">Save student</button>
+            <button type="submit" onClick={() => { saveAnother.current = true; }} disabled={isSaving || isLoading || Boolean(sessionsError) || !selectedSession} className="rounded-xl bg-cyan-600 px-3 py-2.5 text-sm font-medium text-white hover:bg-cyan-500 disabled:opacity-50 sm:px-4">{isSaving ? 'Saving…' : 'Save & Add Another'}</button>
           </div>
         </div>
 
