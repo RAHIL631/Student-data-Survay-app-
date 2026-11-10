@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useRemoteData } from '../hooks/useRemoteData';
@@ -6,7 +6,13 @@ import { createStudentScreening, getScreeningSessions } from '../lib/dataService
 import { getLocalDateString } from '../lib/date';
 import { calculateAge, calculateBmi } from '../lib/permissions';
 import { isLocalTestSessionActive } from '../lib/localTestMode';
-import type { StudentRecord } from '../types';
+import {
+  getPendingSubmissions,
+  PENDING_SUBMISSIONS_CHANGED_EVENT,
+  resolveConflictKeepServer,
+  savePendingSubmission,
+} from '../lib/pendingSubmissions';
+import type { PendingStudentSubmission, StudentRecord } from '../types';
 
 const initialForm = {
   siNumber: '',
@@ -32,9 +38,45 @@ export function StudentRegistrationPage() {
   const { data: sessions, isLoading, error: sessionsError } = useRemoteData(getScreeningSessions);
   const [form, setForm] = useState(() => ({ ...initialForm, sessionId: searchParams.get('sessionId') ?? '' }));
   const [submitted, setSubmitted] = useState(false);
+  const [submissionStatus, setSubmissionStatus] = useState<'online' | 'offline' | null>(null);
   const [error, setError] = useState('');
+  const [pendingSubmissions, setPendingSubmissions] = useState<PendingStudentSubmission[]>([]);
+  const [pendingStorageError, setPendingStorageError] = useState('');
+  const [pendingResolutionId, setPendingResolutionId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const saveAnother = useRef(false);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    let active = true;
+    const refreshPendingSubmissions = () => {
+      void getPendingSubmissions(user.id)
+        .then((submissions) => {
+          if (active) {
+            setPendingSubmissions(submissions);
+            setPendingStorageError('');
+          }
+        })
+        .catch((storageError: unknown) => {
+          console.error('Unable to load pending offline submissions.', storageError);
+          if (active) {
+            setPendingStorageError('Offline submissions could not be loaded from this device.');
+          }
+        });
+    };
+    refreshPendingSubmissions();
+    window.addEventListener(PENDING_SUBMISSIONS_CHANGED_EVENT, refreshPendingSubmissions);
+    window.addEventListener('focus', refreshPendingSubmissions);
+
+    return () => {
+      active = false;
+      window.removeEventListener(PENDING_SUBMISSIONS_CHANGED_EVENT, refreshPendingSubmissions);
+      window.removeEventListener('focus', refreshPendingSubmissions);
+    };
+  }, [user]);
 
   const today = getLocalDateString();
   const heightCm = Number(form.heightCm);
@@ -49,12 +91,31 @@ export function StudentRegistrationPage() {
   const handleChange = (key: keyof typeof initialForm, value: string) => {
     setForm((current) => ({ ...current, [key]: value }));
     setSubmitted(false);
+    setSubmissionStatus(null);
     setError('');
+  };
+
+  const handleKeepServerVersion = async (localId: string) => {
+    if (!user) {
+      return;
+    }
+
+    try {
+      const resolved = await resolveConflictKeepServer(localId, user.id);
+      if (!resolved) {
+        throw new Error('This conflict could not be resolved. Refresh the page and review its current status.');
+      }
+      setPendingResolutionId(null);
+    } catch (resolutionError) {
+      console.error('Unable to resolve the student submission conflict.', resolutionError);
+      setPendingStorageError(resolutionError instanceof Error ? resolutionError.message : 'The conflict could not be resolved.');
+    }
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitted(false);
+    setSubmissionStatus(null);
     setError('');
 
     if (!user || !selectedSession) {
@@ -100,12 +161,24 @@ export function StudentRegistrationPage() {
 
     setIsSaving(true);
     try {
-      await createStudentScreening({
+      const submission = {
         organizationId: user.organizationId,
         userId: user.id,
         sessionId: selectedSession.id,
         student: record,
-      });
+      };
+
+      if (!isLocalTestSessionActive() && !navigator.onLine) {
+        await savePendingSubmission(submission);
+        setForm({ ...initialForm, sessionId: selectedSession.id });
+        setSubmissionStatus('offline');
+        setSubmitted(true);
+        saveAnother.current = false;
+        return;
+      }
+
+      await createStudentScreening(submission);
+      setSubmissionStatus('online');
       if (saveAnother.current) {
         setForm({ ...initialForm, sessionId: selectedSession.id });
         setSubmitted(true);
@@ -128,7 +201,59 @@ export function StudentRegistrationPage() {
         <h2 className="text-2xl font-bold text-slate-900">Student Screening</h2>
         <button type="button" onClick={() => navigate('/screening-sessions')} className="rounded-xl border border-slate-300 px-4 py-2 font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
       </div>
-      {sessionsError && <div role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">Screening sessions could not be loaded: {sessionsError}</div>}
+        {pendingSubmissions.length > 0 && <section aria-label="Offline submission status" className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+          <h3 className="font-semibold text-slate-900">Saved submissions on this device</h3>
+          <ul className="space-y-2">
+            {pendingSubmissions.map((submission) => {
+              const statusLabel = {
+                pending: 'Pending',
+                syncing: 'Syncing',
+                synced: 'Synced',
+                failed: 'Failed',
+                conflict: 'Conflict',
+                resolved: 'Resolved — kept server',
+              }[submission.syncStatus];
+              const statusStyle = {
+                pending: 'bg-amber-100 text-amber-900',
+                syncing: 'bg-sky-100 text-sky-900',
+                synced: 'bg-emerald-100 text-emerald-900',
+                failed: 'bg-rose-100 text-rose-900',
+                conflict: 'bg-rose-100 text-rose-900',
+                resolved: 'bg-slate-200 text-slate-800',
+              }[submission.syncStatus];
+
+              return <li key={submission.localId} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 p-3 text-sm">
+                <span>SI Number {submission.data.student.siNumber} · {new Date(submission.createdAt).toLocaleString()}</span>
+                <span className={`rounded-full px-2.5 py-1 font-medium ${statusStyle}`}>{statusLabel}</span>
+                {submission.lastError && <span className="basis-full text-xs text-rose-800">{submission.lastError}{submission.retryable ? ' — will retry automatically when possible.' : ''}</span>}
+                {submission.syncStatus === 'conflict' && <div className="basis-full space-y-3 rounded-lg border border-rose-200 bg-white p-3">
+                  <p className="font-medium text-rose-900">No server data was changed. The offline submission is preserved and will not be retried automatically.</p>
+                  {submission.serverRecord && <dl className="grid gap-x-4 gap-y-1 text-xs text-slate-700 sm:grid-cols-2">
+                    <div><dt className="inline font-semibold">Server student: </dt><dd className="inline">{submission.serverRecord.studentName}</dd></div>
+                    <div><dt className="inline font-semibold">Server SI Number: </dt><dd className="inline">{submission.serverRecord.siNumber}</dd></div>
+                    <div><dt className="inline font-semibold">Server date of birth: </dt><dd className="inline">{submission.serverRecord.dateOfBirth ?? 'Not recorded'}</dd></div>
+                    <div><dt className="inline font-semibold">Server screening date: </dt><dd className="inline">{submission.serverRecord.screeningDate}</dd></div>
+                    <div><dt className="inline font-semibold">Server status: </dt><dd className="inline">{submission.serverRecord.status}</dd></div>
+                    <div><dt className="inline font-semibold">Server height / weight: </dt><dd className="inline">{submission.serverRecord.heightCm ?? '—'} cm / {submission.serverRecord.weightKg ?? '—'} kg</dd></div>
+                  </dl>}
+                  <p className="text-xs text-slate-700">Compare with the local SI Number {submission.data.student.siNumber}, student {submission.data.student.studentName}, date of birth {submission.data.student.dateOfBirth}, and screening date {submission.data.student.screeningDate}. If unsure, leave this conflict unresolved and contact your administrator.</p>
+                  {pendingResolutionId === submission.localId
+                    ? <div role="alert" className="space-y-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-950">
+                      <p>Keep the server version? The local submission will stay on this device as resolved and will not be sent again. This does not delete the local record.</p>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => void handleKeepServerVersion(submission.localId)} className="rounded-lg bg-slate-800 px-3 py-2 font-medium text-white">Confirm keep server version</button>
+                        <button type="button" onClick={() => setPendingResolutionId(null)} className="rounded-lg border border-slate-300 px-3 py-2 font-medium">Cancel</button>
+                      </div>
+                    </div>
+                    : <button type="button" onClick={() => setPendingResolutionId(submission.localId)} className="rounded-lg border border-rose-300 px-3 py-2 text-xs font-medium text-rose-900 hover:bg-rose-50">Resolve by keeping server version</button>}
+                </div>}
+                {submission.syncStatus === 'resolved' && <span className="basis-full text-xs text-slate-700">The server version was explicitly kept. The offline copy remains stored on this device and will not sync.</span>}
+              </li>;
+            })}
+          </ul>
+        </section>}
+        {pendingStorageError && <div role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">{pendingStorageError}</div>}
+        {sessionsError && <div role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">Screening sessions could not be loaded: {sessionsError}</div>}
       {!isLoading && !sessionsError && !(sessions ?? []).some((session) => session.status === 'active') && <p className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">No active screening session is assigned or available to your account. Ask an administrator to create a session or assign you to one.</p>}
 
       <form onSubmit={(event) => void handleSubmit(event)} className="card space-y-5">
@@ -184,7 +309,7 @@ export function StudentRegistrationPage() {
           </div>
         </div>
 
-        {submitted && <div role="status" className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">Student screening saved.</div>}
+        {submitted && <div role="status" className={`rounded-xl px-4 py-3 text-sm ${submissionStatus === 'offline' ? 'bg-amber-50 text-amber-900' : 'bg-emerald-50 text-emerald-800'}`}>{submissionStatus === 'offline' ? 'Saved offline on this device. It is pending and will sync automatically when connected.' : 'Student screening saved.'}</div>}
         {error && <div role="alert" className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>}
       </form>
     </div>

@@ -1,9 +1,11 @@
 ﻿import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { AuthContext } from './AuthContext';
-import { getProfile } from '../lib/dataService';
+import { createStudentScreening, getProfile } from '../lib/dataService';
 import { supabase } from '../lib/supabase';
+import { syncPendingSubmissions, stopPendingSubmissionRetries } from '../lib/pendingSubmissionSync';
 import {
   endLocalTestSession,
+  isLocalTestSessionActive,
   isLocalTestLoginEnabled,
   restoreLocalTestSession,
   startLocalTestSession,
@@ -71,6 +73,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!user || isLocalTestSessionActive()) {
+      return;
+    }
+
+    const synchronize = () => {
+      void syncPendingSubmissions(user.id, {
+        upload: (submission, idempotencyKey) => createStudentScreening(submission, { idempotencyKey }),
+      }).catch((error: unknown) => {
+        console.error('Unable to synchronize pending student submissions.', error);
+      });
+    };
+
+    synchronize();
+    window.addEventListener('online', synchronize);
+    return () => {
+      window.removeEventListener('online', synchronize);
+      stopPendingSubmissionRetries(user.id);
+    };
+  }, [user]);
 
   const value = useMemo(
     () => ({
