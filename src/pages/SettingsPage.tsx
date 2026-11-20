@@ -1,12 +1,14 @@
 import { useAuth } from '../context/AuthContext';
 import { isSupabaseConfigured } from '../lib/supabase';
+import { InvitationManagement } from '../components/InvitationManagement';
 
 export function SettingsPage() {
   const { user } = useAuth();
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-slate-900">Settings</h2>
+      <h2 className="text-2xl font-bold text-slate-900">Admin Portal</h2>
+      {user?.role === 'organization_admin' && <InvitationManagement />}
       <div className="grid gap-4 md:grid-cols-2">
         <div className="card">
           <h3 className="font-semibold text-slate-900">Backend connection</h3>

@@ -19,9 +19,10 @@ import { SettingsPage } from './pages/SettingsPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { LoginPage } from './pages/LoginPage';
 import { AcceptInvitationPage } from './pages/AcceptInvitationPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, isPasswordRecoveryActive } = useAuth();
   const { pathname } = useLocation();
 
   if (isLoading) {
@@ -30,6 +31,10 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
         Restoring your workspace...
       </div>
     );
+  }
+
+  if (isPasswordRecoveryActive) {
+    return <Navigate to="/reset-password" replace />;
   }
 
   if (!user) {
@@ -50,6 +55,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/accept-invitation" element={<AcceptInvitationPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />

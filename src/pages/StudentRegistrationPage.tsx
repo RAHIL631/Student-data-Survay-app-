@@ -1,8 +1,14 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useRemoteData } from '../hooks/useRemoteData';
-import { createStudentScreening, getScreeningSessions } from '../lib/dataService';
+import {
+  createStudentScreening,
+  getActiveSchoolsForOrganization,
+  getDistricts,
+  getScreeningSessions,
+  getTaluks,
+} from '../lib/dataService';
 import { getLocalDateString } from '../lib/date';
 import { calculateAge, calculateBmi } from '../lib/permissions';
 import { isLocalTestSessionActive } from '../lib/localTestMode';
@@ -23,13 +29,24 @@ const initialForm = {
   midArmCircumferenceCm: '',
   additionalRemarks: '',
   sessionId: '',
+  districtId: '',
+  talukId: '',
+  schoolId: '',
 };
 
 export function StudentRegistrationPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const organizationId = user?.organizationId;
+  const loadSchools = useCallback(
+    () => organizationId ? getActiveSchoolsForOrganization(organizationId) : Promise.resolve([]),
+    [organizationId],
+  );
   const { data: sessions, isLoading, error: sessionsError } = useRemoteData(getScreeningSessions);
+  const { data: districts, isLoading: districtsLoading, error: districtsError } = useRemoteData(getDistricts);
+  const { data: taluks, isLoading: taluksLoading, error: taluksError } = useRemoteData(getTaluks);
+  const { data: schools, isLoading: schoolsLoading, error: schoolsError, reload: reloadSchools } = useRemoteData(loadSchools);
   const [form, setForm] = useState(() => ({ ...initialForm, sessionId: searchParams.get('sessionId') ?? '' }));
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState('');
@@ -41,13 +58,78 @@ export function StudentRegistrationPage() {
   const weightKg = Number(form.weightKg);
   const skinThicknessMm = form.skinThicknessMm === '' ? null : Number(form.skinThicknessMm);
   const midArmCircumferenceCm = form.midArmCircumferenceCm === '' ? null : Number(form.midArmCircumferenceCm);
-  const selectedSession = sessions?.find((session) => session.id === form.sessionId && session.status === 'active');
+  const availableTaluks = (taluks ?? []).filter((taluk) => taluk.districtId === form.districtId);
+  const availableSchools = (schools ?? []).filter((school) =>
+    school.status === 'active'
+    && school.districtId === form.districtId
+    && school.talukId === form.talukId,
+  );
+  const selectedSchool = availableSchools.find((school) => school.id === form.schoolId);
+  const availableSessions = (sessions ?? []).filter((session) =>
+    session.status === 'active'
+    && session.districtId === form.districtId
+    && session.talukId === form.talukId
+    && session.schoolId === form.schoolId,
+  );
+  const selectedSession = availableSessions.find((session) => session.id === form.sessionId);
   const screeningDate = selectedSession?.date ?? today;
   const age = form.dateOfBirth ? calculateAge(form.dateOfBirth, screeningDate) : '';
   const bmi = calculateBmi(weightKg, heightCm);
 
+  useEffect(() => {
+    const session = sessions?.find((candidate) =>
+      candidate.id === form.sessionId && candidate.status === 'active',
+    );
+    if (!session) return;
+
+    setForm((current) => current.sessionId === session.id
+      && current.districtId === session.districtId
+      && current.talukId === session.talukId
+      && current.schoolId === session.schoolId
+      ? current
+      : {
+          ...current,
+          districtId: session.districtId,
+          talukId: session.talukId,
+          schoolId: session.schoolId,
+        });
+  }, [form.sessionId, sessions]);
+
   const handleChange = (key: keyof typeof initialForm, value: string) => {
     setForm((current) => ({ ...current, [key]: value }));
+    setSubmitted(false);
+    setError('');
+  };
+
+  const handleDistrictChange = (districtId: string) => {
+    setForm((current) => ({ ...current, districtId, talukId: '', schoolId: '', sessionId: '' }));
+    setSubmitted(false);
+    setError('');
+  };
+
+  const handleTalukChange = (talukId: string) => {
+    setForm((current) => ({ ...current, talukId, schoolId: '', sessionId: '' }));
+    setSubmitted(false);
+    setError('');
+  };
+
+  const handleSchoolChange = (schoolId: string) => {
+    setForm((current) => ({ ...current, schoolId, sessionId: '' }));
+    setSubmitted(false);
+    setError('');
+  };
+
+  const handleSessionChange = (sessionId: string) => {
+    const session = sessions?.find((candidate) => candidate.id === sessionId);
+    setForm((current) => ({
+      ...current,
+      sessionId,
+      ...(session ? {
+        districtId: session.districtId,
+        talukId: session.talukId,
+        schoolId: session.schoolId,
+      } : {}),
+    }));
     setSubmitted(false);
     setError('');
   };
@@ -57,8 +139,17 @@ export function StudentRegistrationPage() {
     setSubmitted(false);
     setError('');
 
-    if (!user || !selectedSession) {
-      setError('Select an active screening session available to your account.');
+    if (!user || !selectedSchool || !selectedSession) {
+      setError('Select an active school and screening session available to your account.');
+      return;
+    }
+
+    if (
+      selectedSession.schoolId !== selectedSchool.id
+      || selectedSession.districtId !== selectedSchool.districtId
+      || selectedSession.talukId !== selectedSchool.talukId
+    ) {
+      setError('The selected school does not match the screening session location.');
       return;
     }
 
@@ -91,9 +182,9 @@ export function StudentRegistrationPage() {
       skinThicknessMm,
       midArmCircumferenceCm,
       additionalRemarks: form.additionalRemarks.trim(),
-      districtId: selectedSession.districtId,
-      talukId: selectedSession.talukId,
-      schoolId: selectedSession.schoolId,
+      districtId: selectedSchool.districtId,
+      talukId: selectedSchool.talukId,
+      schoolId: selectedSchool.id,
       screeningDate,
       status: 'Pending',
     };
@@ -107,7 +198,13 @@ export function StudentRegistrationPage() {
         student: record,
       });
       if (saveAnother.current) {
-        setForm({ ...initialForm, sessionId: selectedSession.id });
+        setForm({
+          ...initialForm,
+          districtId: selectedSchool.districtId,
+          talukId: selectedSchool.talukId,
+          schoolId: selectedSchool.id,
+          sessionId: selectedSession.id,
+        });
         setSubmitted(true);
       } else {
         navigate(`/students?sessionId=${encodeURIComponent(selectedSession.id)}`);
@@ -133,13 +230,59 @@ export function StudentRegistrationPage() {
 
       <form onSubmit={(event) => void handleSubmit(event)} className="card space-y-5">
         <div className="rounded-xl bg-cyan-50 p-4 text-sm text-cyan-950">
-          <div className="font-semibold">Active screening session</div>
-          <label className="mt-2 block font-medium">Session
-            <select required value={form.sessionId} onChange={(event) => handleChange('sessionId', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5">
-              <option value="">Select a screening session to start</option>
-              {(sessions ?? []).filter((session) => session.status === 'active').map((session) => <option key={session.id} value={session.id}>{session.name} · {session.date}</option>)}
-            </select>
-          </label>
+          <div className="font-semibold">Screening location</div>
+          <div className="mt-2 grid gap-3 md:grid-cols-2">
+            <label className="block font-medium">District
+              <select required value={form.districtId} onChange={(event) => handleDistrictChange(event.target.value)} disabled={districtsLoading || Boolean(districtsError) || isSaving} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+                <option value="">Select a district</option>
+                {(districts ?? []).map((district) => <option key={district.id} value={district.id}>{district.name}</option>)}
+              </select>
+            </label>
+            <label className="block font-medium">Taluk
+              <select required value={form.talukId} onChange={(event) => handleTalukChange(event.target.value)} disabled={!form.districtId || taluksLoading || Boolean(taluksError) || isSaving} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+                <option value="">Select a taluk</option>
+                {availableTaluks.map((taluk) => <option key={taluk.id} value={taluk.id}>{taluk.name}</option>)}
+              </select>
+            </label>
+            <label className="block font-medium">Select School
+              <select required value={form.schoolId} onChange={(event) => handleSchoolChange(event.target.value)} disabled={!form.districtId || !form.talukId || schoolsLoading || Boolean(schoolsError) || isSaving} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+                <option value="">Select a school</option>
+                {availableSchools.map((school) => <option key={school.id} value={school.id}>{school.name} · {school.code}</option>)}
+              </select>
+            </label>
+            <label className="block font-medium">Active screening session
+              <select required value={form.sessionId} onChange={(event) => handleSessionChange(event.target.value)} disabled={!form.schoolId || isLoading || Boolean(sessionsError) || isSaving} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+                <option value="">Select an active screening session</option>
+                {availableSessions.map((session) => <option key={session.id} value={session.id}>{session.name} · {session.date}</option>)}
+              </select>
+            </label>
+          </div>
+          {districtsLoading && <p role="status" className="mt-2 text-sm text-slate-600">Loading districts…</p>}
+          {taluksLoading && <p role="status" className="mt-2 text-sm text-slate-600">Loading taluks…</p>}
+          {schoolsLoading && <p role="status" className="mt-2 text-sm text-slate-600">Loading active schools…</p>}
+          {isLoading && <p role="status" className="mt-2 text-sm text-slate-600">Loading screening sessions…</p>}
+          {!districtsLoading && !districtsError && (districts ?? []).length === 0 && (
+            <p className="mt-2 text-sm text-slate-700">No districts are available in your authorized scope. Ask an administrator to configure a district.</p>
+          )}
+          {form.districtId && !taluksLoading && !taluksError && availableTaluks.length === 0 && (
+            <p className="mt-2 text-sm text-slate-700">No taluks are available for this district.</p>
+          )}
+          {(districtsError || taluksError || schoolsError) && (
+            <div role="alert" className="mt-2 text-sm text-rose-800">
+              {districtsError && <p>Districts could not be loaded: {districtsError}</p>}
+              {taluksError && <p>Taluks could not be loaded: {taluksError}</p>}
+              {schoolsError && <p>Schools could not be loaded: {schoolsError} <button type="button" onClick={reloadSchools} className="underline">Retry</button></p>}
+            </div>
+          )}
+          {!schoolsLoading && !schoolsError && (schools ?? []).length === 0 && (
+            <p className="mt-2 text-sm text-slate-700">No active schools are available in your authorized scope. Ask an administrator to add an active school.</p>
+          )}
+          {form.districtId && form.talukId && !schoolsLoading && !schoolsError && availableSchools.length === 0 && (schools ?? []).length > 0 && (
+            <p className="mt-2 text-sm text-slate-700">No active schools are available for this district and taluk.</p>
+          )}
+          {form.schoolId && !isLoading && !sessionsError && availableSessions.length === 0 && (
+            <p className="mt-2 text-sm text-slate-700">No active screening sessions are available for this school. Ask an administrator to create or assign a session.</p>
+          )}
           {selectedSession && <div className="mt-2 grid gap-1 text-slate-700 sm:grid-cols-2">
             <span>School: {selectedSession.schoolName}</span><span>District: {selectedSession.districtName}</span>
             <span>Taluk: {selectedSession.talukName}</span><span>BEO: {selectedSession.beoName}</span>

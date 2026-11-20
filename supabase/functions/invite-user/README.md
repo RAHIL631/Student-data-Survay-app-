@@ -10,6 +10,7 @@ This function creates and cancels invitations using the existing invitation data
 - A database claim must succeed before `inviteUserByEmail` is called. Retried requests cannot issue another Auth request for the same invitation.
 - Cancellation uses the caller's JWT and `cancel_user_invitation`; PostgreSQL checks the caller's current role and scope.
 - The acceptance RPC provisions a profile only for the exact Auth user recorded against the invitation, after confirmed email verification. It rejects cancelled invitations.
+- The SPA invitation page requires the recipient to choose and confirm a password. It updates the Auth account through `auth.updateUser` before calling the acceptance RPC; passwords are never written to application tables.
 - Invitation acceptance and cancellation do not delete orphaned Auth accounts. Resend and operator reconciliation are not implemented.
 
 ## Local development

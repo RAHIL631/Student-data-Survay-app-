@@ -142,6 +142,31 @@ export async function getSchools(): Promise<School[]> {
   }));
 }
 
+export async function getActiveSchoolsForOrganization(organizationId: string): Promise<School[]> {
+  if (isLocalTestSessionActive()) {
+    return organizationId === getLocalTestUser().organizationId
+      ? getLocalTestSchools().filter((school) => school.status === 'active')
+      : [];
+  }
+
+  const { data, error } = await requireSupabase()
+    .from('schools')
+    .select('id, name, code, district_id, taluk_id, status')
+    .eq('organization_id', organizationId)
+    .eq('status', 'active')
+    .order('name');
+
+  throwIfError(error);
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    code: row.code,
+    districtId: row.district_id,
+    talukId: row.taluk_id,
+    status: row.status,
+  }));
+}
+
 export async function getScreeningSessions(): Promise<ScreeningSession[]> {
   if (isLocalTestSessionActive()) {
     return getLocalTestSessions();

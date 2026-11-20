@@ -11,6 +11,10 @@ export function canAccessRoute(role: Role, routeKey: RouteKey): boolean {
   return roleAccess[role].includes(routeKey);
 }
 
+export function getHomeRoute(role: Role): RouteKey {
+  return role === 'organization_admin' ? 'settings' : 'dashboard';
+}
+
 export function calculateAge(dateOfBirth: string, screeningDate: string): number {
   const birth = new Date(dateOfBirth);
   const screening = new Date(screeningDate);

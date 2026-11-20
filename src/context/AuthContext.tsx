@@ -5,9 +5,13 @@ export type AuthContextValue = {
   user: AppUser | null;
   isLoading: boolean;
   authError: string | null;
-  login: (email: string, password: string) => Promise<void>;
+  isPasswordRecoveryActive: boolean;
+  login: (email: string, password: string) => Promise<AppUser>;
+  requestPasswordReset: (email: string) => Promise<void>;
+  updatePassword: (password: string) => Promise<void>;
+  finishPasswordRecovery: () => Promise<void>;
   loginAsLocalTestEnumerator: () => Promise<void>;
-  acceptInvitation: (invitationId: string) => Promise<void>;
+  acceptInvitation: (invitationId: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 };
 

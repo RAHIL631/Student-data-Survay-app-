@@ -17,7 +17,7 @@ const navItems = [
   { to: '/assignments', label: 'Assignments' },
   { to: '/reports', label: 'Reports' },
   { to: '/audit-logs', label: 'Audit Logs' },
-  { to: '/settings', label: 'Settings' },
+  { to: '/settings', label: 'Admin Portal' },
   { to: '/profile', label: 'Profile' },
 ];
 
