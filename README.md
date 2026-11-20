@@ -8,7 +8,7 @@ The login-page photo shows students reading in the library at Government Primary
 
 1. Create a Supabase project.
 2. Copy `.env.example` to `.env` and set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from the project's API settings. These are the project URL and public anon/publishable key; never put a service-role key in the browser or commit it.
-3. Apply `supabase/migrations/001_init.sql`, `supabase/migrations/002_live_backend.sql`, `supabase/migrations/003_role_scope_hardening.sql`, and `supabase/migrations/004_owner_scoped_records.sql` in order using the Supabase SQL Editor (or the Supabase CLI).
+3. Apply the SQL files in `supabase/migrations/` in numeric order using the Supabase SQL Editor (or the Supabase CLI). The unified migration sequence is `001_init.sql`, `002_live_backend.sql`, `003_role_scope_hardening.sql`, `004_owner_scoped_records.sql`, `005_district_manager_scope.sql`, `006_audit_and_delete_scope.sql`, `007_user_invitations.sql`, `008_restrict_profile_updates.sql`, `009_scope_enumerator_locations.sql`, and `010_secure_legacy_students.sql`.
 4. Create an organization administrator in Supabase Authentication, then create the initial organization and profile from the SQL Editor:
 
 ```sql
@@ -43,7 +43,7 @@ Set the application's allowed redirect URLs in Supabase Authentication settings 
 - Enumerators open **Screening Sessions**, choose **Start screening**, and record students for that session.
 - Student screening records, reports, and audit history are stored in Supabase; RLS restricts access by organization and role.
 
-Additional staff accounts are invited from the administrator dashboard in the same application. The Supabase Edge Function validates the caller's access token and organization-admin profile before creating Auth invitations and profile rows. Do not expose a Supabase service-role key in the browser.
+Additional staff accounts are invited from **Staff & Access** in the unified app. The `invite-user` Edge Function records invitations, uses an idempotency key to avoid duplicate Auth requests, and provisions a profile only after the invitee accepts. The `admin-provision-user` Edge Function remains responsible for administrator account actions. Neither function exposes a service-role key to the browser.
 
 ## Unified role-based frontend
 
@@ -55,14 +55,16 @@ npm run build
 
 Deploy the contents of `dist/` as a single static site and configure the host to serve `index.html` for SPA routes. The administrator dashboard and staff screens are available in that same app; only profiles with the `organization_admin` role can access administrator-only routes.
 
-Deploy the staff invitation function after linking the Supabase project:
+Deploy both Edge Functions after linking the Supabase project:
 
 ```powershell
 supabase functions deploy admin-provision-user
+supabase functions deploy invite-user
 supabase secrets set ADMIN_ALLOWED_ORIGINS=https://your-domain.example
+supabase secrets set INVITE_ALLOWED_ORIGINS=https://your-domain.example
 ```
 
-Set `ADMIN_ALLOWED_ORIGINS` to the exact comma-separated origins from which the unified app is served. Supabase supplies `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` to Edge Functions; the service-role key must remain server-side. Configure Supabase Auth email delivery and the Site URL/redirect allow-list so invitees can accept invitations in the app.
+Set both origin secrets to the exact comma-separated origins from which the unified app is served. Supabase supplies `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` to Edge Functions; the service-role key must remain server-side. Configure Supabase Auth email delivery and the Site URL/redirect allow-list so invitees can accept invitations in the app.
 
 Organization administrators are intentionally not created by client-side code or by another organization administrator. Create the first organization and first admin profile using the SQL bootstrap above; the server-side invite function can provision district supervisors and enumerators.
 

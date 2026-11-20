@@ -35,6 +35,7 @@ const navItems = [
   { to: '/audit-logs', label: 'Audit Logs', shortLabel: 'Audit logs', icon: ShieldCheck },
   { to: '/settings', label: 'Settings', shortLabel: 'Settings', icon: Settings },
   { to: '/profile', label: 'Profile', shortLabel: 'Profile', icon: UserCircle2 },
+  { to: '/users', label: 'Staff & Access', shortLabel: 'Staff', icon: Users },
 ];
 
 const mobilePrimaryRoutes: Record<Role, string[]> = {

@@ -1,4 +1,5 @@
 import type { Role, RouteKey } from '../types';
+import { serializeCsv } from './csv.js';
 
 const roleAccess: Record<Role, RouteKey[]> = {
   organization_admin: ['dashboard', 'users', 'screening-sessions', 'student-registration', 'students', 'schools', 'districts', 'enumerators', 'assignments', 'reports', 'audit-logs', 'settings', 'profile'],
@@ -63,17 +64,7 @@ export function exportCsv(filename: string, rows: Record<string, string | number
     return;
   }
 
-  const headers = Object.keys(rows[0]);
-  const csv = [headers.join(',')]
-    .concat(
-      rows.map((row) =>
-        headers
-          .map((header) => `"${String(row[header] ?? '').replace(/"/g, '""')}"`)
-          .join(','),
-      ),
-    )
-    .join('\n');
-
+  const csv = serializeCsv(rows);
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');

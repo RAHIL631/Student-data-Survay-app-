@@ -20,3 +20,5 @@ android/build/
 *.sqlite
 *.sqlite3
 *.log
+supabase/.temp/
+supabase/.branches/

@@ -1,3 +1,13 @@
-﻿[database]
+[db]
+  port = 54322
+
+[auth]
   enabled = true
-  port = 54321
+  site_url = "http://localhost:5173"
+  additional_redirect_urls = [
+    "http://localhost:5173/**",
+    "http://127.0.0.1:5173/**"
+  ]
+
+[functions.invite-user]
+  verify_jwt = true

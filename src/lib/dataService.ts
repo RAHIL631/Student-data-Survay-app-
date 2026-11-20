@@ -1,6 +1,7 @@
 import type { PostgrestError } from '@supabase/supabase-js';
-import type { AppUser, AuditLog, District, OwnerDataGrant, School, ScreeningSession, StudentRecord, Taluk } from '../types';
+import type { AppUser, AuditLog, District, InvitationRole, OwnerDataGrant, School, ScreeningSession, StudentRecord, Taluk } from '../types';
 import { verifyDuplicateStudentSubmission } from './studentSubmissionIdempotency.js';
+import type { Database } from './database.types';
 import { requireSupabase } from './supabase';
 import {
   getLocalTestAuditLogs,
@@ -22,6 +23,23 @@ function throwIfError(error: PostgrestError | null): void {
     throw new Error(error.message);
   }
 }
+
+export type InvitationHistoryRecord = Pick<
+  Database['public']['Tables']['user_invitations']['Row'],
+  | 'id'
+  | 'email'
+  | 'role'
+  | 'status'
+  | 'auth_status'
+  | 'created_at'
+  | 'last_auth_response_at'
+  | 'accepted_at'
+  | 'cancelled_at'
+>;
+
+export type InvitationSubmissionResult =
+  | { status: 'auth_request_accepted'; invitationId: string }
+  | { status: 'already_processing' | 'outcome_unknown' };
 
 export async function getProfile(userId: string): Promise<AppUser> {
   if (isLocalTestSessionActive() && userId === getLocalTestUser().id) {
@@ -117,6 +135,32 @@ export async function getSchools(): Promise<School[]> {
   const { data, error } = await requireSupabase()
     .from('schools')
     .select('id, owner_id, name, code, district_id, taluk_id, status')
+    .order('name');
+
+  throwIfError(error);
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    ownerId: row.owner_id,
+    name: row.name,
+    code: row.code,
+    districtId: row.district_id,
+    talukId: row.taluk_id,
+    status: row.status,
+  }));
+}
+
+export async function getActiveSchoolsForOrganization(organizationId: string): Promise<School[]> {
+  if (isLocalTestSessionActive()) {
+    return organizationId === getLocalTestUser().organizationId
+      ? getLocalTestSchools().filter((school) => school.status === 'active')
+      : [];
+  }
+
+  const { data, error } = await requireSupabase()
+    .from('schools')
+    .select('id, owner_id, name, code, district_id, taluk_id, status')
+    .eq('organization_id', organizationId)
+    .eq('status', 'active')
     .order('name');
 
   throwIfError(error);
@@ -295,28 +339,6 @@ export async function setOwnerDataGrant(viewerId: string, ownerId: string, shoul
   throwIfError(error);
 }
 
-export async function provisionOrganizationUser(input: {
-  fullName: string;
-  email: string;
-  role: 'district_manager' | 'enumerator';
-  districtId: string;
-}): Promise<{ warning?: string }> {
-  if (isLocalTestSessionActive()) {
-    throw new Error('Account invitations are not available in local test mode.');
-  }
-
-  const { data, error } = await requireSupabase().functions.invoke('admin-provision-user', {
-    body: { ...input, action: 'invite' },
-  });
-  if (error) {
-    throw new Error(error.message);
-  }
-  if (data?.error) {
-    throw new Error(typeof data.error === 'string' ? data.error : 'The invitation could not be sent.');
-  }
-  return { warning: typeof data?.warning === 'string' ? data.warning : undefined };
-}
-
 export async function manageOrganizationUser(input: {
   userId: string;
   action: 'reset_password' | 'deactivate' | 'reactivate';
@@ -335,6 +357,63 @@ export async function manageOrganizationUser(input: {
     throw new Error(typeof data.error === 'string' ? data.error : 'The account action could not be completed.');
   }
   return { warning: typeof data?.warning === 'string' ? data.warning : undefined };
+}
+
+export async function getUserInvitations(): Promise<InvitationHistoryRecord[]> {
+  const { data, error } = await requireSupabase()
+    .from('user_invitations')
+    .select('id, email, role, status, auth_status, created_at, last_auth_response_at, accepted_at, cancelled_at')
+    .order('created_at', { ascending: false })
+    .limit(100);
+
+  throwIfError(error);
+  return data ?? [];
+}
+
+export async function createUserInvitation(input: {
+  email: string;
+  role: InvitationRole;
+  districtId: string;
+  idempotencyKey: string;
+}): Promise<InvitationSubmissionResult> {
+  const { data, error } = await requireSupabase().functions.invoke<{
+    invitationId?: string;
+    status?: string;
+    code?: string;
+  }>('invite-user', {
+    body: {
+      action: 'invite',
+      email: input.email,
+      role: input.role,
+      districtId: input.districtId,
+      idempotencyKey: input.idempotencyKey,
+    },
+  });
+
+  if (error) {
+    const status = error.context instanceof Response ? error.context.status : undefined;
+    if (status !== undefined && status >= 400 && status < 500) {
+      throw new Error('The invitation could not be created. Check your permissions and invitation history.');
+    }
+    throw new Error('The invitation outcome could not be confirmed. Check invitation history before trying again.');
+  }
+  if (data?.status === 'auth_request_accepted' && data.invitationId) {
+    return { status: 'auth_request_accepted', invitationId: data.invitationId };
+  }
+  if (data?.status === 'already_processing' || data?.status === 'outcome_unknown') {
+    return { status: data.status };
+  }
+  throw new Error('The invitation outcome could not be confirmed. Check invitation history before trying again.');
+}
+
+export async function cancelUserInvitation(invitationId: string): Promise<void> {
+  const { data, error } = await requireSupabase().functions.invoke<{ status?: string }>(
+    'invite-user',
+    { body: { action: 'cancel', invitationId } },
+  );
+  if (error || data?.status !== 'cancelled') {
+    throw new Error('This invitation could not be cancelled. It may already be complete or outside your authorized scope.');
+  }
 }
 
 export async function getAssignments(): Promise<Array<{
@@ -500,6 +579,24 @@ export async function assignEnumerator(input: {
     enumerator_id: input.enumeratorId,
   });
   throwIfError(error);
+}
+
+export async function unassignEnumerator(input: {
+  sessionId: string;
+  enumeratorId: string;
+}): Promise<void> {
+  const { data, error } = await requireSupabase()
+    .from('session_assignments')
+    .delete()
+    .eq('session_id', input.sessionId)
+    .eq('enumerator_id', input.enumeratorId)
+    .select('id')
+    .maybeSingle();
+
+  throwIfError(error);
+  if (!data) {
+    throw new Error('No authorized matching assignment was found.');
+  }
 }
 
 export async function createStudentScreening(input: {

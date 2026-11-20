@@ -1,6 +1,6 @@
 import { ArrowRight, LockKeyhole, LogIn, Mail, ShieldCheck } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState, type FormEvent } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { isLocalTestLoginEnabled } from '../lib/localTestMode';
@@ -8,43 +8,52 @@ import type { Role } from '../types';
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { login, loginAsLocalTestUser, requestPasswordReset, authError } = useAuth();
+  const location = useLocation();
+  const {
+    login,
+    loginAsLocalTestUser,
+    requestPasswordReset,
+    authError,
+    user,
+    isLoading,
+    isPasswordRecoveryActive,
+  } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [resetMessage, setResetMessage] = useState('');
-  const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [message, setMessage] = useState('');
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isStartingLocalSession, setIsStartingLocalSession] = useState(false);
 
-  const handlePasswordReset = async () => {
-    setError('');
-    setResetMessage('');
-    if (!email.trim()) {
-      setError('Enter your email address to request a password recovery link.');
-      return;
+  useEffect(() => {
+    if (!isLoading && isPasswordRecoveryActive) {
+      navigate('/reset-password', { replace: true });
+    } else if (!isLoading && user) {
+      navigate('/dashboard', { replace: true });
     }
-
-    setIsResettingPassword(true);
-    try {
-      await requestPasswordReset(email);
-      setResetMessage('If an account exists for this address, a password recovery email has been sent.');
-    } catch (resetError) {
-      console.error('Unable to send a password recovery request.', resetError);
-      setError(resetError instanceof Error ? resetError.message : 'The password recovery email could not be sent.');
-    } finally {
-      setIsResettingPassword(false);
-    }
-  };
+  }, [isLoading, isPasswordRecoveryActive, navigate, user]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError('');
+    setMessage('');
+    setIsSubmitting(true);
     try {
+      if (isForgotPassword) {
+        await requestPasswordReset(email);
+        setMessage('If an account exists for this email, a password reset link has been sent.');
+        return;
+      }
+
       await login(email, password);
-      navigate('/dashboard');
-    } catch (loginError) {
-      console.error('Unable to sign in.', loginError);
-      setError(loginError instanceof Error ? loginError.message : 'Unable to sign in. Try again.');
+      navigate('/dashboard', { replace: true });
+    } catch (submitError) {
+      setError(submitError instanceof Error
+        ? submitError.message
+        : isForgotPassword ? 'Unable to request a password reset. Try again.' : 'Unable to sign in. Try again.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -53,7 +62,7 @@ export function LoginPage() {
     setIsStartingLocalSession(true);
     try {
       await loginAsLocalTestUser(role);
-      navigate('/dashboard');
+      navigate('/dashboard', { replace: true });
     } catch (loginError) {
       console.error('Unable to start local test session.', loginError);
       setError(loginError instanceof Error ? loginError.message : 'Unable to start local test session.');
@@ -68,84 +77,101 @@ export function LoginPage() {
       <div aria-hidden="true" className="pointer-events-none absolute -bottom-28 -right-20 h-80 w-80 rounded-full bg-emerald-200/40 blur-3xl" />
       <div className="relative grid w-full max-w-6xl overflow-hidden rounded-[1.75rem] border border-white bg-white shadow-[0_30px_90px_-35px_rgba(15,23,42,0.3)] lg:min-h-[680px] lg:grid-cols-[1.05fr_0.95fr]">
         <section className="relative isolate flex min-h-64 flex-col justify-between overflow-hidden bg-slate-950 p-5 text-white sm:min-h-80 sm:p-8 lg:min-h-[680px] lg:p-10">
-            <img
-              src="/school-students.jpg"
-              alt="Students reading at a government primary school in Goa"
-              className="absolute inset-0 -z-20 h-full w-full object-cover object-[center_45%]"
-            />
-            <div aria-hidden="true" className="absolute inset-0 -z-10 bg-gradient-to-b from-slate-950/45 via-slate-950/15 to-slate-950/90" />
-            <div aria-hidden="true" className="absolute inset-0 -z-10 bg-gradient-to-r from-slate-950/35 via-transparent to-transparent" />
-            <div className="relative flex items-center gap-3">
-              <div className="rounded-2xl border border-white/20 bg-white/10 p-2.5 text-cyan-200 shadow-lg backdrop-blur-sm"><ShieldCheck size={21} /></div>
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-100">Karnataka school health</p>
-                <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Student Health Hub</h1>
-              </div>
+          <img
+            src="/school-students.jpg"
+            alt="Students reading at a government primary school in Goa"
+            className="absolute inset-0 -z-20 h-full w-full object-cover object-[center_45%]"
+          />
+          <div aria-hidden="true" className="absolute inset-0 -z-10 bg-gradient-to-b from-slate-950/45 via-slate-950/15 to-slate-950/90" />
+          <div aria-hidden="true" className="absolute inset-0 -z-10 bg-gradient-to-r from-slate-950/35 via-transparent to-transparent" />
+          <div className="relative flex items-center gap-3">
+            <div className="rounded-2xl border border-white/20 bg-white/10 p-2.5 text-cyan-200 shadow-lg backdrop-blur-sm"><ShieldCheck size={21} /></div>
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-100">Karnataka school health</p>
+              <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Student Health Hub</h1>
             </div>
-            <div className="relative mt-10 max-w-lg sm:mt-14 lg:mt-auto lg:pb-3">
-              <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm">
-                <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
-                A healthier future starts at school
-              </div>
-              <h2 className="text-3xl font-bold leading-tight tracking-tight sm:text-4xl">
-                Care that reaches every student.
-              </h2>
-              <p className="mt-4 max-w-md text-sm leading-6 text-slate-100 sm:text-base">
-                A secure workspace for students, screening teams, and administrators.
-              </p>
+          </div>
+          <div className="relative mt-10 max-w-lg sm:mt-14 lg:mt-auto lg:pb-3">
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm">
+              <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
+              A healthier future starts at school
             </div>
-            <a
-              href="https://commons.wikimedia.org/wiki/File:Government_Primary_School,Kharwada_Amona_Bicholim_Goa.jpg"
-              target="_blank"
-              rel="noreferrer"
-              className="relative mt-6 w-fit text-[10px] text-white/75 underline decoration-white/40 underline-offset-2 hover:text-white"
-            >
-              Government school students · Saili Chodankar / Wikimedia Commons · CC BY-SA 4.0
-            </a>
+            <h2 className="text-3xl font-bold leading-tight tracking-tight sm:text-4xl">Care that reaches every student.</h2>
+            <p className="mt-4 max-w-md text-sm leading-6 text-slate-100 sm:text-base">
+              A secure workspace for student screening, reporting, and administration.
+            </p>
+          </div>
+          <a
+            href="https://commons.wikimedia.org/wiki/File:Government_Primary_School,Kharwada_Amona_Bicholim_Goa.jpg"
+            target="_blank"
+            rel="noreferrer"
+            className="relative mt-6 w-fit text-[10px] text-white/75 underline decoration-white/40 underline-offset-2 hover:text-white"
+          >
+            Government school students · Saili Chodankar / Wikimedia Commons · CC BY-SA 4.0
+          </a>
         </section>
 
         <section className="flex items-center justify-center px-5 py-8 sm:px-10 sm:py-10 lg:px-14">
-          <form onSubmit={handleSubmit} className="w-full max-w-md space-y-5 sm:space-y-6">
-              <div className="mb-8">
-                <p className="text-xs font-bold uppercase tracking-[0.16em] text-cyan-700">Unified workspace</p>
-                <h3 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">Welcome back</h3>
-                <p className="mt-2 text-sm text-slate-500">Sign in to continue to your workspace.</p>
+          <form onSubmit={(event) => void handleSubmit(event)} className="w-full max-w-md space-y-5 sm:space-y-6">
+            <div className="mb-8">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-cyan-700">Unified workspace</p>
+              <h3 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">
+                {isForgotPassword ? 'Reset your password' : 'Welcome back'}
+              </h3>
+              <p className="mt-2 text-sm text-slate-500">
+                {isForgotPassword ? 'We’ll email a secure password reset link if the account exists.' : 'Sign in to continue to your workspace.'}
+              </p>
+            </div>
+
+            {location.state?.passwordResetSuccess && (
+              <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                Your password has been updated. Sign in with your new password.
               </div>
-
-              {!isSupabaseConfigured && (
-                <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                  Sign-in is unavailable until the backend is configured.
-                </div>
-              )}
-              {authError && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{authError}</div>}
-
-              <div>
-                <label htmlFor="login-email" className="mb-2 block text-sm font-semibold text-slate-700">Email address</label>
-                <div className="relative">
-                  <Mail aria-hidden="true" size={18} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input id="login-email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@organization.org" className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-cyan-600 focus:bg-white focus:ring-4 focus:ring-cyan-100" />
-                </div>
+            )}
+            {!isSupabaseConfigured && (
+              <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Sign-in is unavailable until the backend is configured.
               </div>
+            )}
+            {authError && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{authError}</div>}
 
-              <div>
-                <label htmlFor="login-password" className="mb-2 block text-sm font-semibold text-slate-700">Password</label>
-                <div className="relative">
-                  <LockKeyhole aria-hidden="true" size={18} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input id="login-password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-cyan-600 focus:bg-white focus:ring-4 focus:ring-cyan-100" />
-                </div>
+            <div>
+              <label htmlFor="login-email" className="mb-2 block text-sm font-semibold text-slate-700">Email address</label>
+              <div className="relative">
+                <Mail aria-hidden="true" size={18} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input id="login-email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@organization.org" className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-cyan-600 focus:bg-white focus:ring-4 focus:ring-cyan-100" />
               </div>
+            </div>
 
-              <button type="button" onClick={() => void handlePasswordReset()} disabled={!isSupabaseConfigured || isResettingPassword} className="text-sm font-medium text-cyan-800 underline-offset-4 hover:underline disabled:opacity-50">
-                {isResettingPassword ? 'Sending recovery email…' : 'Forgot password?'}
-              </button>
-              {resetMessage && <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{resetMessage}</div>}
-              {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>}
+            {!isForgotPassword && <div>
+              <label htmlFor="login-password" className="mb-2 block text-sm font-semibold text-slate-700">Password</label>
+              <div className="relative">
+                <LockKeyhole aria-hidden="true" size={18} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input id="login-password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-cyan-600 focus:bg-white focus:ring-4 focus:ring-cyan-100" />
+              </div>
+            </div>}
 
-              <button type="submit" disabled={!isSupabaseConfigured} className="group flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-cyan-700 px-4 font-semibold text-white shadow-lg shadow-cyan-900/10 transition hover:bg-cyan-800 focus:outline-none focus:ring-4 focus:ring-cyan-200 disabled:cursor-not-allowed disabled:opacity-50">
-                <LogIn size={18} />
-                Sign in
-                <ArrowRight size={16} className="ml-auto opacity-70 transition group-hover:translate-x-0.5 group-hover:opacity-100" />
-              </button>
+            {message && <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{message}</div>}
+            {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>}
+
+            <button type="submit" disabled={!isSupabaseConfigured || isSubmitting} className="group flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-cyan-700 px-4 font-semibold text-white shadow-lg shadow-cyan-900/10 transition hover:bg-cyan-800 focus:outline-none focus:ring-4 focus:ring-cyan-200 disabled:cursor-not-allowed disabled:opacity-50">
+              {!isForgotPassword && <LogIn size={18} />}
+              {isSubmitting
+                ? isForgotPassword ? 'Sending reset link…' : 'Signing in…'
+                : isForgotPassword ? 'Send reset link' : 'Sign in'}
+              {!isForgotPassword && <ArrowRight size={16} className="ml-auto opacity-70 transition group-hover:translate-x-0.5 group-hover:opacity-100" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setIsForgotPassword((value) => !value);
+                setError('');
+                setMessage('');
+              }}
+              className="w-full text-sm font-medium text-cyan-800 underline-offset-4 hover:underline"
+            >
+              {isForgotPassword ? 'Back to sign in' : 'Forgot password?'}
+            </button>
 
             {isLocalTestLoginEnabled && (
               <details className="group rounded-xl border border-slate-200 bg-slate-50 p-4">
@@ -153,15 +179,15 @@ export function LoginPage() {
                   Developer preview <span className="ml-1 text-xs font-normal text-slate-500">· local test accounts</span>
                 </summary>
                 <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                    {([
-                      ['organization_admin', 'Local administrator'],
-                      ['district_manager', 'Local viewer'],
-                      ['enumerator', 'Local Screening Faculty'],
-                    ] as const).map(([role, label]) => (
-                      <button key={role} type="button" onClick={() => void handleLocalTestLogin(role)} disabled={isStartingLocalSession} className="flex min-h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-700 transition hover:border-cyan-300 hover:bg-cyan-50 disabled:opacity-50">
-                        {isStartingLocalSession ? 'Starting…' : label}
-                      </button>
-                    ))}
+                  {([
+                    ['organization_admin', 'Local administrator'],
+                    ['district_manager', 'Local viewer'],
+                    ['enumerator', 'Local Screening Faculty'],
+                  ] as const).map(([role, label]) => (
+                    <button key={role} type="button" onClick={() => void handleLocalTestLogin(role)} disabled={isStartingLocalSession} className="flex min-h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-700 transition hover:border-cyan-300 hover:bg-cyan-50 disabled:opacity-50">
+                      {isStartingLocalSession ? 'Starting…' : label}
+                    </button>
+                  ))}
                 </div>
                 <p className="mt-2 text-xs text-slate-500">Preview data stays in this browser and does not sync.</p>
               </details>

@@ -12,14 +12,47 @@ import {
 } from '../lib/localTestMode';
 import type { AppUser, Role } from '../types';
 
+const PASSWORD_RECOVERY_STORAGE_KEY = 'student-health-hub:password-recovery';
+
+function readPasswordRecoveryState() {
+  try {
+    return window.sessionStorage.getItem(PASSWORD_RECOVERY_STORAGE_KEY) === 'active';
+  } catch (error) {
+    console.error('Unable to restore the password recovery state.', error);
+    return false;
+  }
+}
+
+function persistPasswordRecoveryState(isActive: boolean) {
+  try {
+    if (isActive) {
+      window.sessionStorage.setItem(PASSWORD_RECOVERY_STORAGE_KEY, 'active');
+    } else {
+      window.sessionStorage.removeItem(PASSWORD_RECOVERY_STORAGE_KEY);
+    }
+  } catch (error) {
+    console.error('Unable to persist the password recovery state.', error);
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Awaited<ReturnType<typeof getProfile>> | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
   const explicitLogout = useRef(false);
+  const [isPasswordRecoveryActive, setIsPasswordRecoveryActive] = useState(readPasswordRecoveryState);
+  const profileLoadId = useRef(0);
+  const passwordRecoveryActiveRef = useRef(isPasswordRecoveryActive);
+
+  const setPasswordRecoveryActive = (isActive: boolean) => {
+    passwordRecoveryActiveRef.current = isActive;
+    persistPasswordRecoveryState(isActive);
+    setIsPasswordRecoveryActive(isActive);
+  };
 
   useEffect(() => {
     if (!supabase) {
+      setPasswordRecoveryActive(false);
       setUser(restoreLocalTestSession());
       setIsLoading(false);
       return;
@@ -27,8 +60,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     let active = true;
     const restoreProfile = async (userId: string | null) => {
+      const requestId = ++profileLoadId.current;
+      if (passwordRecoveryActiveRef.current) {
+        if (active && requestId === profileLoadId.current) {
+          setUser(null);
+          setAuthError(null);
+          setIsLoading(false);
+        }
+        return;
+      }
+
       if (!userId) {
-        if (active) {
+        if (active && requestId === profileLoadId.current) {
           setUser(null);
           setAuthError(null);
           setIsLoading(false);
@@ -38,14 +81,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       try {
         const profile = await getProfile(userId);
-        if (active) {
+        if (active && requestId === profileLoadId.current) {
           setUser(profile);
           setAuthError(null);
           setIsLoading(false);
         }
       } catch (error) {
         console.error('Unable to load the authenticated account profile.', error);
-        if (active) {
+        if (active && requestId === profileLoadId.current) {
           setUser(null);
           setAuthError(error instanceof Error ? error.message : 'Unable to load your account profile.');
           setIsLoading(false);
@@ -54,7 +97,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setPasswordRecoveryActive(true);
+        profileLoadId.current += 1;
+        setUser(null);
+        setAuthError(null);
+        setIsLoading(false);
+        return;
+      }
+
       if (event === 'SIGNED_OUT') {
+        setPasswordRecoveryActive(false);
         if (explicitLogout.current) {
           explicitLogout.current = false;
           void restoreProfile(null);
@@ -65,6 +118,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         return;
       }
+
+      if (passwordRecoveryActiveRef.current) {
+        setUser(null);
+        setIsLoading(false);
+        return;
+      }
+
       void restoreProfile(session?.user.id ?? null);
     });
 
@@ -117,6 +177,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       isLoading,
       authError,
+      isPasswordRecoveryActive,
       login: async (email: string, password: string): Promise<AppUser> => {
         if (!supabase) {
           throw new Error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your local .env file.');
@@ -133,25 +194,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAuthError(null);
         return profile;
       },
-      requestPasswordReset: async (email: string): Promise<void> => {
+      requestPasswordReset: async (email: string) => {
         if (!supabase) {
           throw new Error('Password recovery is unavailable until Supabase is configured.');
         }
-        const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase());
+
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+          redirectTo: `${window.location.origin}/reset-password`,
+        });
         if (error) {
           console.error('Unable to request password recovery.', error);
           throw new Error('The password recovery email could not be sent. Check the address and try again.');
         }
       },
-      updatePassword: async (password: string): Promise<void> => {
+      updatePassword: async (password: string) => {
         if (!supabase) {
           throw new Error('Password changes are unavailable until Supabase is configured.');
         }
+        if (!passwordRecoveryActiveRef.current) {
+          throw new Error('Open a valid password reset link before setting a new password.');
+        }
+
+        const { data, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) {
+          throw new Error('The password recovery session could not be verified.');
+        }
+        if (!data.session) {
+          setPasswordRecoveryActive(false);
+          throw new Error('This password reset link is invalid or has expired. Request a new link and try again.');
+        }
+
         const { error } = await supabase.auth.updateUser({ password });
         if (error) {
           console.error('Unable to update the account password.', error);
           throw new Error('The password could not be updated. Check the password requirements and try again.');
         }
+      },
+      finishPasswordRecovery: async () => {
+        if (!supabase) {
+          throw new Error('Supabase is not configured.');
+        }
+
+        explicitLogout.current = true;
+        const { error } = await supabase.auth.signOut({ scope: 'local' });
+        if (error) {
+          explicitLogout.current = false;
+          throw new Error('The recovery session could not be closed. Try again.');
+        }
+
+        setPasswordRecoveryActive(false);
+        profileLoadId.current += 1;
+        setUser(null);
+        setAuthError(null);
+        setIsLoading(false);
       },
       loginAsLocalTestUser: async (role: Role): Promise<AppUser> => {
         if (!isLocalTestLoginEnabled) {
@@ -161,6 +256,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(profile);
         setAuthError(null);
         return profile;
+      },
+      acceptInvitation: async (invitationId: string, password: string, fullName: string) => {
+        if (!supabase) {
+          throw new Error('Supabase is not configured.');
+        }
+
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) {
+          throw new Error('The invitation session could not be verified.');
+        }
+        if (!session) {
+          throw new Error('The invitation link is invalid or has expired. Open the link from your invitation email again.');
+        }
+
+        const { error: passwordError } = await supabase.auth.updateUser({ password });
+        if (passwordError) {
+          throw new Error(passwordError.message);
+        }
+
+        const { data, error } = await supabase.rpc('accept_user_invitation', {
+          target_invitation_id: invitationId,
+          requested_full_name: fullName.trim(),
+        });
+        if (error || data !== true) {
+          throw new Error('This invitation cannot be accepted. It may have been cancelled or already used.');
+        }
+
+        const profile = await getProfile(session.user.id);
+        profileLoadId.current += 1;
+        setUser(profile);
+        setAuthError(null);
       },
       logout: async () => {
         if (!supabase) {
@@ -182,7 +308,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAuthError(null);
       },
     }),
-    [user, isLoading, authError],
+    [user, isLoading, authError, isPasswordRecoveryActive],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
