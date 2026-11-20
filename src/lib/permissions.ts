@@ -1,7 +1,7 @@
 import type { Role, RouteKey } from '../types';
 
 const roleAccess: Record<Role, RouteKey[]> = {
-  organization_admin: ['dashboard', 'screening-sessions', 'student-registration', 'students', 'schools', 'districts', 'enumerators', 'assignments', 'reports', 'audit-logs', 'settings', 'profile'],
+  organization_admin: ['dashboard', 'users', 'screening-sessions', 'student-registration', 'students', 'schools', 'districts', 'enumerators', 'assignments', 'reports', 'audit-logs', 'settings', 'profile'],
   district_manager: ['dashboard', 'students', 'reports', 'profile'],
   enumerator: ['dashboard', 'screening-sessions', 'student-registration', 'students', 'reports', 'profile'],
 };

@@ -16,7 +16,6 @@ const requiredDirectories = [
   'src/context',
   'src/hooks',
   'src/lib',
-  'admin',
   'supabase/migrations',
   'supabase/functions/admin-provision-user',
   'tests',
@@ -37,13 +36,8 @@ test('entry points exist', () => {
     'src/main.tsx',
     'src/App.tsx',
     'src/lib/dataService.ts',
-    'src/AdminApp.tsx',
     'src/pages/AdminDashboardPage.tsx',
     'src/pages/AdminUsersPage.tsx',
-    'src/admin-main.tsx',
-    'admin/index.html',
-    'admin/src/admin-main.tsx',
-    'vite.admin.config.ts',
     'supabase/migrations/002_live_backend.sql',
     'supabase/migrations/003_role_scope_hardening.sql',
     'supabase/functions/admin-provision-user/index.ts',
@@ -53,6 +47,20 @@ test('entry points exist', () => {
     const target = path.join(rootDir, file);
     assert.equal(fs.existsSync(target), true, `Missing file: ${file}`);
   }
+});
+
+test('administrator views are integrated into the unified frontend', () => {
+  const app = fs.readFileSync(path.join(rootDir, 'src/App.tsx'), 'utf8');
+  const layout = fs.readFileSync(path.join(rootDir, 'src/components/Layout.tsx'), 'utf8');
+  const permissions = fs.readFileSync(path.join(rootDir, 'src/lib/permissions.ts'), 'utf8');
+  const packageJson = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
+
+  assert.match(app, /<Route path="\/users" element={<AdminUsersPage \/>} \/>/);
+  assert.match(app, /user\?\.role === 'organization_admin' \? <AdminDashboardPage \/> : <DashboardPage \/>/);
+  assert.match(layout, /to: '\/users', label: 'Staff & Access'/);
+  assert.match(permissions, /organization_admin: \[[^\]]*'users'/);
+  assert.equal(Object.keys(packageJson.scripts).some((script) => script.endsWith(':admin')), false);
+  assert.equal(fs.existsSync(path.join(rootDir, 'admin/index.html')), false);
 });
 
 test('local test sign-in is restricted to development builds', () => {

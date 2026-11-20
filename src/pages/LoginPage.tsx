@@ -6,9 +6,9 @@ import { isSupabaseConfigured } from '../lib/supabase';
 import { isLocalTestLoginEnabled } from '../lib/localTestMode';
 import type { Role } from '../types';
 
-export function LoginPage({ adminOnly = false }: { adminOnly?: boolean }) {
+export function LoginPage() {
   const navigate = useNavigate();
-  const { login, loginAsLocalTestUser, logout, requestPasswordReset, authError } = useAuth();
+  const { login, loginAsLocalTestUser, requestPasswordReset, authError } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -40,12 +40,7 @@ export function LoginPage({ adminOnly = false }: { adminOnly?: boolean }) {
     event.preventDefault();
     setError('');
     try {
-      const signedInUser = await login(email, password);
-      if (adminOnly && signedInUser.role !== 'organization_admin') {
-        await logout();
-        setError('This sign-in is for administrators. Use the staff app for Screening Faculty and Viewers.');
-        return;
-      }
+      await login(email, password);
       navigate('/dashboard');
     } catch (loginError) {
       console.error('Unable to sign in.', loginError);
@@ -57,9 +52,6 @@ export function LoginPage({ adminOnly = false }: { adminOnly?: boolean }) {
     setError('');
     setIsStartingLocalSession(true);
     try {
-      if (adminOnly && role !== 'organization_admin') {
-        throw new Error('Only the local administrator test account can use this portal.');
-      }
       await loginAsLocalTestUser(role);
       navigate('/dashboard');
     } catch (loginError) {
@@ -93,13 +85,13 @@ export function LoginPage({ adminOnly = false }: { adminOnly?: boolean }) {
             <div className="relative mt-10 max-w-lg sm:mt-14 lg:mt-auto lg:pb-3">
               <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm">
                 <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
-                {adminOnly ? 'Administrator workspace' : 'A healthier future starts at school'}
+                A healthier future starts at school
               </div>
               <h2 className="text-3xl font-bold leading-tight tracking-tight sm:text-4xl">
-                {adminOnly ? 'Support the people behind every screening.' : 'Care that reaches every student.'}
+                Care that reaches every student.
               </h2>
               <p className="mt-4 max-w-md text-sm leading-6 text-slate-100 sm:text-base">
-                {adminOnly ? 'Coordinate districts, schools, and field teams from one secure workspace.' : 'A secure workspace for school health screenings and the teams who deliver them.'}
+                A secure workspace for students, screening teams, and administrators.
               </p>
             </div>
             <a
@@ -115,7 +107,7 @@ export function LoginPage({ adminOnly = false }: { adminOnly?: boolean }) {
         <section className="flex items-center justify-center px-5 py-8 sm:px-10 sm:py-10 lg:px-14">
           <form onSubmit={handleSubmit} className="w-full max-w-md space-y-5 sm:space-y-6">
               <div className="mb-8">
-                <p className="text-xs font-bold uppercase tracking-[0.16em] text-cyan-700">{adminOnly ? 'Administrator portal' : 'Staff portal'}</p>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-cyan-700">Unified workspace</p>
                 <h3 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">Welcome back</h3>
                 <p className="mt-2 text-sm text-slate-500">Sign in to continue to your workspace.</p>
               </div>
@@ -165,7 +157,7 @@ export function LoginPage({ adminOnly = false }: { adminOnly?: boolean }) {
                       ['organization_admin', 'Local administrator'],
                       ['district_manager', 'Local viewer'],
                       ['enumerator', 'Local Screening Faculty'],
-                    ] as const).filter(([role]) => !adminOnly || role === 'organization_admin').map(([role, label]) => (
+                    ] as const).map(([role, label]) => (
                       <button key={role} type="button" onClick={() => void handleLocalTestLogin(role)} disabled={isStartingLocalSession} className="flex min-h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-700 transition hover:border-cyan-300 hover:bg-cyan-50 disabled:opacity-50">
                         {isStartingLocalSession ? 'Starting…' : label}
                       </button>
@@ -174,8 +166,7 @@ export function LoginPage({ adminOnly = false }: { adminOnly?: boolean }) {
                 <p className="mt-2 text-xs text-slate-500">Preview data stays in this browser and does not sync.</p>
               </details>
             )}
-            {!adminOnly && <a href={import.meta.env.VITE_ADMIN_APP_URL || '/admin/'} className="block text-center text-sm font-medium text-cyan-800 underline-offset-4 hover:underline">Administrator? Open the admin portal</a>}
-            <p className="pt-1 text-center text-xs text-slate-400">Authorized staff only · Student Health Hub</p>
+            <p className="pt-1 text-center text-xs text-slate-400">Authorized staff and administrators only · Student Health Hub</p>
           </form>
         </section>
       </div>

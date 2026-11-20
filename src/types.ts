@@ -132,6 +132,7 @@ export type AuditLog = {
 
 export type RouteKey =
   | 'dashboard'
+  | 'users'
   | 'screening-sessions'
   | 'student-registration'
   | 'students'

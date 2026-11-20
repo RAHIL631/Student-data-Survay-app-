@@ -30,6 +30,7 @@ const navItems = [
   { to: '/districts', label: 'Districts & Taluks', shortLabel: 'Locations', icon: MapPinned },
   { to: '/enumerators', label: 'Screening Faculty', shortLabel: 'Faculty', icon: Users },
   { to: '/assignments', label: 'Assignments', shortLabel: 'Assignments', icon: ClipboardList },
+  { to: '/users', label: 'Staff & Access', shortLabel: 'Staff', icon: Users },
   { to: '/reports', label: 'Reports', shortLabel: 'Reports', icon: BarChart3 },
   { to: '/audit-logs', label: 'Audit Logs', shortLabel: 'Audit logs', icon: ShieldCheck },
   { to: '/settings', label: 'Settings', shortLabel: 'Settings', icon: Settings },
@@ -160,7 +161,9 @@ export function AppLayout() {
           {isLocalTest && <div role="status" className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
             <strong>Local test mode:</strong> this is not authenticated by Supabase. Screening records are stored only in this browser and will not sync to your organization.
           </div>}
-          <Outlet />
+          <div className="app-page-content">
+            <Outlet />
+          </div>
         </div>
       </main>
 
