@@ -1,8 +1,8 @@
-﻿import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AuthContext } from './AuthContext';
 import { createStudentScreening, getProfile } from '../lib/dataService';
 import { supabase } from '../lib/supabase';
-import { syncPendingSubmissions, stopPendingSubmissionRetries } from '../lib/pendingSubmissionSync';
+import { PENDING_SUBMISSIONS_SYNCED_EVENT, syncPendingSubmissions, stopPendingSubmissionRetries } from '../lib/pendingSubmissionSync';
 import {
   endLocalTestSession,
   isLocalTestSessionActive,
@@ -16,6 +16,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Awaited<ReturnType<typeof getProfile>> | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
+  const explicitLogout = useRef(false);
 
   useEffect(() => {
     if (!supabase) {
@@ -52,7 +53,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
+        if (explicitLogout.current) {
+          explicitLogout.current = false;
+          void restoreProfile(null);
+        } else {
+          setUser(null);
+          setAuthError('Your session expired. Sign in again to continue.');
+          setIsLoading(false);
+        }
+        return;
+      }
       void restoreProfile(session?.user.id ?? null);
     });
 
@@ -83,9 +95,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const synchronize = () => {
       void syncPendingSubmissions(user.id, {
         upload: (submission, idempotencyKey) => createStudentScreening(submission, { idempotencyKey }),
-      }).catch((error: unknown) => {
-        console.error('Unable to synchronize pending student submissions.', error);
-      });
+      }).then((syncedCount) => {
+        if (syncedCount > 0) {
+          window.dispatchEvent(new CustomEvent(PENDING_SUBMISSIONS_SYNCED_EVENT, {
+            detail: { userId: user.id, syncedCount },
+          }));
+        }
+      }).catch((error: unknown) => console.error('Unable to synchronize pending student submissions.', error));
     };
 
     synchronize();
@@ -108,13 +124,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) {
-          throw new Error(error.message);
+          console.error('Supabase rejected the sign-in request.', error.message);
+          throw new Error('Email or password is incorrect, or this account is unavailable.');
         }
 
         const profile = await getProfile(data.user.id);
         setUser(profile);
         setAuthError(null);
         return profile;
+      },
+      requestPasswordReset: async (email: string): Promise<void> => {
+        if (!supabase) {
+          throw new Error('Password recovery is unavailable until Supabase is configured.');
+        }
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase());
+        if (error) {
+          console.error('Unable to request password recovery.', error);
+          throw new Error('The password recovery email could not be sent. Check the address and try again.');
+        }
+      },
+      updatePassword: async (password: string): Promise<void> => {
+        if (!supabase) {
+          throw new Error('Password changes are unavailable until Supabase is configured.');
+        }
+        const { error } = await supabase.auth.updateUser({ password });
+        if (error) {
+          console.error('Unable to update the account password.', error);
+          throw new Error('The password could not be updated. Check the password requirements and try again.');
+        }
       },
       loginAsLocalTestUser: async (role: Role): Promise<AppUser> => {
         if (!isLocalTestLoginEnabled) {
@@ -134,8 +171,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         endLocalTestSession();
+        explicitLogout.current = true;
         const { error } = await supabase.auth.signOut();
         if (error) {
+          explicitLogout.current = false;
           throw new Error(error.message);
         }
 

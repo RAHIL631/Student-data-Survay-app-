@@ -140,6 +140,31 @@ test('a confirmed upload marks the stored submission as synced without deleting 
   }
 });
 
+test('sync reports successful uploads and persists the server-assigned SI number', async () => {
+  const data = {
+    ...submissionData,
+    student: { ...submissionData.student, siNumber: '' },
+  };
+  const saved = await savePendingSubmission(data, { idempotencyKey: '2d5295ea-4716-485a-ae06-9fd15c807bcc' });
+
+  try {
+    const syncedCount = await syncPendingSubmissions(data.userId, {
+      scheduleRetries: false,
+      upload: async () => '1',
+    });
+    const stored = (await getPendingSubmissions(data.userId))
+      .find((record) => record.localId === saved.localId);
+
+    assert.equal(syncedCount, 1);
+    assert.equal(stored.syncStatus, 'synced');
+    assert.equal(stored.data.student.siNumber, '1');
+    assert.equal(stored.idempotencyKey, '2d5295ea-4716-485a-ae06-9fd15c807bcc');
+  } finally {
+    stopPendingSubmissionRetries(data.userId);
+    await deletePendingSubmission(saved.localId);
+  }
+});
+
 test('temporary server errors retry with backoff and eventually sync', async () => {
   const saved = await savePendingSubmission(submissionData);
   const now = { value: Date.now() };
@@ -305,7 +330,7 @@ test('duplicate SI number is acknowledged only for the same saved submission', a
   }
 });
 
-test('online duplicate SI responses are acknowledged only when all saved fields match', async () => {
+test('duplicate SI responses are acknowledged only when all saved fields match in the same session', async () => {
   await verifyDuplicateStudentSubmission(
     submissionData,
     async () => {
@@ -320,7 +345,7 @@ test('online duplicate SI responses are acknowledged only when all saved fields 
       async () => null,
       async () => makeSavedRow(submissionData, { session_id: 'another-session' }),
     ),
-    (error) => error instanceof DuplicateStudentSubmissionError && error.code === 'STUDENT_SI_NUMBER_CONFLICT',
+    (error) => error instanceof DuplicateStudentSubmissionError && error.code === 'DUPLICATE_NOT_VERIFIABLE',
   );
 });
 

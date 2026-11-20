@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { getStudentRecords } from '../lib/dataService';
+import { getScreeningSessions, getStudentRecords } from '../lib/dataService';
 import { useRemoteData } from '../hooks/useRemoteData';
 
 export function StudentsPage() {
@@ -9,6 +9,8 @@ export function StudentsPage() {
   const sessionId = searchParams.get('sessionId');
   const [search, setSearch] = useState('');
   const { data: students, isLoading, error, reload } = useRemoteData(getStudentRecords);
+  const { data: sessions, error: sessionsError, reload: reloadSessions } = useRemoteData(getScreeningSessions);
+  const activeSession = sessions?.find((session) => session.id === sessionId && session.status === 'active');
   const query = search.trim().toLowerCase();
   const filteredStudents = (students ?? [])
     .filter((student) => !sessionId || student.sessionId === sessionId)
@@ -19,7 +21,7 @@ export function StudentsPage() {
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <h2 className="text-2xl font-bold text-slate-900">Students</h2>
-          <button onClick={() => navigate(sessionId ? `/student-registration?sessionId=${encodeURIComponent(sessionId)}` : '/screening-sessions')} className="rounded-xl bg-cyan-600 px-4 py-2 font-medium text-white hover:bg-cyan-500">{sessionId ? 'Add student' : 'Start screening'}</button>
+          <button onClick={() => navigate(activeSession ? `/student-registration?sessionId=${encodeURIComponent(activeSession.id)}` : '/screening-sessions')} className="rounded-xl bg-cyan-600 px-4 py-2 font-medium text-white hover:bg-cyan-500">{activeSession ? 'Add student' : 'Start screening'}</button>
         </div>
         <input
           aria-label="Search student or SI number"
@@ -31,6 +33,7 @@ export function StudentsPage() {
       </div>
 
       {error && <div role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">Student records could not be loaded: {error} <button onClick={reload} className="ml-2 underline">Retry</button></div>}
+      {sessionsError && <div role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">Screening sessions could not be checked: {sessionsError} <button onClick={reloadSessions} className="ml-2 underline">Retry</button></div>}
       {isLoading ? <p role="status" className="text-sm text-slate-500">Loading student screenings…</p> : null}
       {!isLoading && !error && filteredStudents.length === 0 && <p className="text-sm text-slate-500">{query ? 'No students match this search.' : sessionId ? 'No students have been screened in this session yet.' : 'No student screenings have been recorded.'}</p>}
 

@@ -71,12 +71,13 @@ function notifyPendingSubmissionsChanged() {
 
 /**
  * @param {PendingStudentSubmissionData} data
+ * @param {{ idempotencyKey?: string }} [options]
  * @returns {Promise<PendingStudentSubmission>}
  */
-export function savePendingSubmission(data) {
+export function savePendingSubmission(data, options = {}) {
   const submission = {
     localId: globalThis.crypto.randomUUID(),
-    idempotencyKey: globalThis.crypto.randomUUID(),
+    idempotencyKey: options.idempotencyKey ?? globalThis.crypto.randomUUID(),
     data,
     createdAt: new Date().toISOString(),
     syncStatus: 'pending',

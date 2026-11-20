@@ -71,16 +71,17 @@ export async function verifyDuplicateStudentSubmission(input, findById, findBySi
   }
 
   const rowBySiNumber = await findBySiNumber(input.organizationId, input.student.siNumber);
-  if (rowBySiNumber && isSameSavedStudentSubmission(rowBySiNumber, input)) {
+  const sameSessionRow = rowBySiNumber?.session_id === input.sessionId ? rowBySiNumber : null;
+  if (sameSessionRow && isSameSavedStudentSubmission(sameSessionRow, input)) {
     return;
   }
 
   throw new DuplicateStudentSubmissionError(
-    rowBySiNumber
-      ? `SI Number ${input.student.siNumber} already belongs to a different student record in this organization. Review both records; neither was overwritten.`
-      : `SI Number ${input.student.siNumber} is already in use, but this account cannot read the existing record. Ask an organization administrator to review it; the offline record is preserved.`,
-    rowBySiNumber ? 'STUDENT_SI_NUMBER_CONFLICT' : 'DUPLICATE_NOT_VERIFIABLE',
-    rowBySiNumber ? 'si_number_conflict' : 'duplicate_unverified',
-    rowBySiNumber ?? undefined,
+    sameSessionRow
+      ? `SI Number ${input.student.siNumber} already belongs to a different student record in this screening session. Review both records; neither was overwritten.`
+      : `The duplicate response could not be verified within this screening session. Ask an organization administrator to review it; the offline record is preserved.`,
+    sameSessionRow ? 'STUDENT_SI_NUMBER_CONFLICT' : 'DUPLICATE_NOT_VERIFIABLE',
+    sameSessionRow ? 'si_number_conflict' : 'duplicate_unverified',
+    sameSessionRow ?? undefined,
   );
 }

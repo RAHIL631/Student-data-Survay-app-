@@ -15,6 +15,7 @@ const localUsers: Record<Role, AppUser> = {
     name: 'Local Test Administrator',
     email: 'admin@local.test',
     role: 'organization_admin',
+    isActive: true,
   },
   district_manager: {
     id: 'local-test-manager',
@@ -22,6 +23,7 @@ const localUsers: Record<Role, AppUser> = {
     name: 'Local Test District Supervisor',
     email: 'manager@local.test',
     role: 'district_manager',
+    isActive: true,
     districtId: 'local-test-district',
   },
   enumerator: {
@@ -30,6 +32,7 @@ const localUsers: Record<Role, AppUser> = {
     name: 'Local Test Enumerator',
     email: 'enumerator@local.test',
     role: 'enumerator',
+    isActive: true,
     districtId: 'local-test-district',
   },
 };
@@ -50,6 +53,7 @@ const taluk: Taluk = {
 
 const school: School = {
   id: 'local-test-school',
+  ownerId: localUsers.enumerator.id,
   name: 'Local Test School',
   code: 'LOCAL-001',
   districtId: district.id,
@@ -59,6 +63,7 @@ const school: School = {
 
 const session: ScreeningSession = {
   id: 'local-test-session',
+  ownerId: localUsers.enumerator.id,
   name: 'Local Test Screening Session',
   districtId: district.id,
   districtName: district.name,
@@ -158,20 +163,20 @@ export function getLocalTestAuditLogs(): AuditLog[] {
   return readData().auditLogs;
 }
 
-export function saveLocalTestStudent(student: StudentRecord, actorId: string): void {
+export function saveLocalTestStudent(student: StudentRecord, actorId: string, ownerId = actorId): void {
   const data = readData();
-  if (data.students.some((existing) => existing.siNumber === student.siNumber)) {
-    throw new Error('A student with this SI Number is already saved in local test data.');
+  if (data.students.some((existing) => existing.sessionId === student.sessionId && existing.siNumber === student.siNumber)) {
+    throw new Error('A student with this SI Number is already saved in this screening session.');
   }
 
-  data.students = [student, ...data.students];
+  data.students = [{ ...student, ownerId }, ...data.students];
   data.auditLogs = [{
     id: crypto.randomUUID(),
     actor: getLocalTestUsers().find((user) => user.id === actorId)?.name ?? actorId,
     action: 'insert',
     recordType: 'student_screenings',
     timestamp: new Date().toISOString(),
-    metadata: JSON.stringify({ studentId: student.id, actorId }),
+    metadata: JSON.stringify({ studentId: student.id, actorId, ownerId }),
   }, ...data.auditLogs];
   saveData(data);
 }

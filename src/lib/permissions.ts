@@ -2,7 +2,7 @@ import type { Role, RouteKey } from '../types';
 
 const roleAccess: Record<Role, RouteKey[]> = {
   organization_admin: ['dashboard', 'screening-sessions', 'student-registration', 'students', 'schools', 'districts', 'enumerators', 'assignments', 'reports', 'audit-logs', 'settings', 'profile'],
-  district_manager: ['dashboard', 'screening-sessions', 'student-registration', 'students', 'schools', 'districts', 'enumerators', 'assignments', 'reports', 'audit-logs', 'profile'],
+  district_manager: ['dashboard', 'students', 'reports', 'profile'],
   enumerator: ['dashboard', 'screening-sessions', 'student-registration', 'students', 'reports', 'profile'],
 };
 
@@ -11,22 +11,42 @@ export function canAccessRoute(role: Role, routeKey: RouteKey): boolean {
 }
 
 export function getRoleLabel(role: Role): string {
-  if (role === 'organization_admin') return 'Organization administrator';
-  if (role === 'district_manager') return 'District supervisor';
-  return 'Enumerator';
+  if (role === 'organization_admin') return 'Administrator';
+  if (role === 'district_manager') return 'Viewer';
+  return 'Screening Faculty';
 }
 
 export function calculateAge(dateOfBirth: string, screeningDate: string): number {
-  const birth = new Date(dateOfBirth);
-  const screening = new Date(screeningDate);
-  const age = screening.getFullYear() - birth.getFullYear();
-  const monthAdjustment = screening.getMonth() - birth.getMonth();
+  const birth = parseDateOnly(dateOfBirth);
+  const screening = parseDateOnly(screeningDate);
+  if (!birth || !screening) return Number.NaN;
 
-  if (monthAdjustment < 0 || (monthAdjustment === 0 && screening.getDate() < birth.getDate())) {
+  const age = screening.year - birth.year;
+  const monthAdjustment = screening.month - birth.month;
+  if (monthAdjustment < 0 || (monthAdjustment === 0 && screening.day < birth.day)) {
     return age - 1;
   }
 
   return age;
+}
+
+function parseDateOnly(value: string): { year: number; month: number; day: number } | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const [, yearText, monthText, dayText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    !Number.isFinite(date.getTime()) ||
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return { year, month, day };
 }
 
 export function calculateBmi(weightKg: number, heightCm: number): number {

@@ -6,6 +6,8 @@ export type AuthContextValue = {
   isLoading: boolean;
   authError: string | null;
   login: (email: string, password: string) => Promise<AppUser>;
+  requestPasswordReset: (email: string) => Promise<void>;
+  updatePassword: (password: string) => Promise<void>;
   loginAsLocalTestUser: (role: Role) => Promise<AppUser>;
   logout: () => Promise<void>;
 };

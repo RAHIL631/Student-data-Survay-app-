@@ -35,7 +35,7 @@ export function DashboardPage() {
   const summaryCards = [
     { label: 'Students screened', value: data.summary.studentCount, icon: Users },
     { label: 'Sessions', value: data.summary.sessionCount, icon: AppWindow },
-    { label: 'Enumerators', value: data.summary.enumeratorCount, icon: ShieldCheck },
+    { label: 'Screening Faculty', value: data.summary.enumeratorCount, icon: ShieldCheck },
     { label: 'Districts', value: data.summary.districtCount, icon: TrendingUp },
   ];
 

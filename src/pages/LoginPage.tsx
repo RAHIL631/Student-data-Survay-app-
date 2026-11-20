@@ -8,11 +8,33 @@ import type { Role } from '../types';
 
 export function LoginPage({ adminOnly = false }: { adminOnly?: boolean }) {
   const navigate = useNavigate();
-  const { login, loginAsLocalTestUser, logout, authError } = useAuth();
+  const { login, loginAsLocalTestUser, logout, requestPasswordReset, authError } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [resetMessage, setResetMessage] = useState('');
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
   const [isStartingLocalSession, setIsStartingLocalSession] = useState(false);
+
+  const handlePasswordReset = async () => {
+    setError('');
+    setResetMessage('');
+    if (!email.trim()) {
+      setError('Enter your email address to request a password recovery link.');
+      return;
+    }
+
+    setIsResettingPassword(true);
+    try {
+      await requestPasswordReset(email);
+      setResetMessage('If an account exists for this address, a password recovery email has been sent.');
+    } catch (resetError) {
+      console.error('Unable to send a password recovery request.', resetError);
+      setError(resetError instanceof Error ? resetError.message : 'The password recovery email could not be sent.');
+    } finally {
+      setIsResettingPassword(false);
+    }
+  };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -21,7 +43,7 @@ export function LoginPage({ adminOnly = false }: { adminOnly?: boolean }) {
       const signedInUser = await login(email, password);
       if (adminOnly && signedInUser.role !== 'organization_admin') {
         await logout();
-        setError('This sign-in is for organization administrators. Use the staff app for district supervisors and enumerators.');
+        setError('This sign-in is for administrators. Use the staff app for Screening Faculty and Viewers.');
         return;
       }
       navigate('/dashboard');
@@ -121,6 +143,10 @@ export function LoginPage({ adminOnly = false }: { adminOnly?: boolean }) {
                 </div>
               </div>
 
+              <button type="button" onClick={() => void handlePasswordReset()} disabled={!isSupabaseConfigured || isResettingPassword} className="text-sm font-medium text-cyan-800 underline-offset-4 hover:underline disabled:opacity-50">
+                {isResettingPassword ? 'Sending recovery email…' : 'Forgot password?'}
+              </button>
+              {resetMessage && <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{resetMessage}</div>}
               {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>}
 
               <button type="submit" disabled={!isSupabaseConfigured} className="group flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-cyan-700 px-4 font-semibold text-white shadow-lg shadow-cyan-900/10 transition hover:bg-cyan-800 focus:outline-none focus:ring-4 focus:ring-cyan-200 disabled:cursor-not-allowed disabled:opacity-50">
@@ -136,9 +162,9 @@ export function LoginPage({ adminOnly = false }: { adminOnly?: boolean }) {
                 </summary>
                 <div className="mt-3 grid gap-2 sm:grid-cols-3">
                     {([
-                      ['organization_admin', 'Local admin'],
-                      ['district_manager', 'Local supervisor'],
-                      ['enumerator', 'Local enumerator'],
+                      ['organization_admin', 'Local administrator'],
+                      ['district_manager', 'Local viewer'],
+                      ['enumerator', 'Local Screening Faculty'],
                     ] as const).filter(([role]) => !adminOnly || role === 'organization_admin').map(([role, label]) => (
                       <button key={role} type="button" onClick={() => void handleLocalTestLogin(role)} disabled={isStartingLocalSession} className="flex min-h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-700 transition hover:border-cyan-300 hover:bg-cyan-50 disabled:opacity-50">
                         {isStartingLocalSession ? 'Starting…' : label}

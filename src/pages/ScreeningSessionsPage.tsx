@@ -3,7 +3,7 @@ import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useRemoteData } from '../hooks/useRemoteData';
-import { createScreeningSession, getSchools, getScreeningSessions } from '../lib/dataService';
+import { createScreeningSession, getOrganizationUsers, getSchools, getScreeningSessions } from '../lib/dataService';
 import { getLocalDateString } from '../lib/date';
 
 export function ScreeningSessionsPage() {
@@ -11,6 +11,7 @@ export function ScreeningSessionsPage() {
   const { user } = useAuth();
   const { data: sessions, isLoading, error, reload } = useRemoteData(getScreeningSessions);
   const { data: schools, error: schoolsError } = useRemoteData(getSchools);
+  const { data: users, error: usersError } = useRemoteData(getOrganizationUsers);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
     name: '',
@@ -22,7 +23,14 @@ export function ScreeningSessionsPage() {
   });
   const [saveError, setSaveError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-  const canCreate = user?.role === 'organization_admin' || user?.role === 'district_manager';
+  const canCreate = user?.role === 'organization_admin' || user?.role === 'enumerator';
+  const activeFacultyIds = new Set((users ?? []).filter((member) => member.role === 'enumerator' && member.isActive).map((member) => member.id));
+  const availableSchools = (schools ?? []).filter((school) =>
+    school.status === 'active' &&
+    (user?.role === 'organization_admin'
+      ? activeFacultyIds.has(school.ownerId)
+      : user?.role === 'enumerator' && school.ownerId === user.id),
+  );
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -37,7 +45,6 @@ export function ScreeningSessionsPage() {
     try {
       await createScreeningSession({
         organizationId: user.organizationId,
-        userId: user.id,
         name: form.name.trim(),
         date: form.date,
         beoName: form.beoName.trim(),
@@ -64,7 +71,7 @@ export function ScreeningSessionsPage() {
       </div>
 
       {error && <div role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">Sessions could not be loaded: {error} <button onClick={reload} className="ml-2 underline">Retry</button></div>}
-      {schoolsError && <div role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">Schools could not be loaded: {schoolsError}</div>}
+      {(schoolsError || (user?.role === 'organization_admin' && usersError)) && <div role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">Schools or Screening Faculty could not be loaded: {schoolsError ?? usersError}</div>}
       {showForm && (
         <form onSubmit={(event) => void handleSubmit(event)} className="card space-y-4">
           <h3 className="text-lg font-semibold text-slate-900">Create screening session</h3>
@@ -78,7 +85,7 @@ export function ScreeningSessionsPage() {
             <label className="text-sm font-medium text-slate-700">School
               <select required value={form.schoolId} onChange={(event) => setForm((current) => ({ ...current, schoolId: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
                 <option value="">Select a school</option>
-                {(schools ?? []).filter((school) => school.status === 'active').map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}
+                {availableSchools.map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}
               </select>
             </label>
             <label className="text-sm font-medium text-slate-700">BEO name
@@ -91,10 +98,11 @@ export function ScreeningSessionsPage() {
               <input required value={form.screeningFacultyName} onChange={(event) => setForm((current) => ({ ...current, screeningFacultyName: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" />
             </label>
           </div>
+          {availableSchools.length === 0 && <p role="status" className="text-sm text-amber-800">Assign an active school to a Screening Faculty account before creating a session.</p>}
           {saveError && <div role="alert" className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-800">{saveError}</div>}
           <div className="flex justify-end gap-3">
             <button type="button" onClick={() => setShowForm(false)} className="rounded-xl border border-slate-300 px-4 py-2 font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-            <button type="submit" disabled={isSaving || Boolean(schoolsError)} className="rounded-xl bg-cyan-600 px-4 py-2 font-medium text-white hover:bg-cyan-500 disabled:opacity-50">{isSaving ? 'Saving…' : 'Save session'}</button>
+            <button type="submit" disabled={isSaving || Boolean(schoolsError) || Boolean(user?.role === 'organization_admin' && usersError) || !availableSchools.length} className="rounded-xl bg-cyan-600 px-4 py-2 font-medium text-white hover:bg-cyan-500 disabled:opacity-50">{isSaving ? 'Saving…' : 'Save session'}</button>
           </div>
         </form>
       )}
@@ -112,7 +120,7 @@ export function ScreeningSessionsPage() {
               <div className="mt-4 space-y-2 text-sm text-slate-600">
                 <div className="flex items-center gap-2"><CalendarClock size={16} /> {session.date}</div>
                 <div>School: {session.schoolName}</div>
-                <div>Assigned enumerators: {session.enumerators.length}</div>
+                <div>Screening Faculty: {session.enumerators.length}</div>
               </div>
               {session.status === 'active' && <button onClick={() => navigate(`/student-registration?sessionId=${encodeURIComponent(session.id)}`)} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl bg-cyan-600 px-4 py-2 font-medium text-white hover:bg-cyan-500"><Play size={16} /> Start screening</button>}
             </div>

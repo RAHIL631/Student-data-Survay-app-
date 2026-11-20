@@ -1,31 +1,58 @@
-import { ChevronRight, Menu, ShieldCheck, UserCircle2, X } from 'lucide-react';
+import {
+  BarChart3,
+  ChevronRight,
+  ClipboardList,
+  Home,
+  MapPinned,
+  Menu,
+  MoreHorizontal,
+  School,
+  Settings,
+  ShieldCheck,
+  UserCircle2,
+  UserPlus,
+  Users,
+  X,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { canAccessRoute, getRoleLabel } from '../lib/permissions';
 import { isLocalTestSessionActive } from '../lib/localTestMode';
-import type { RouteKey } from '../types';
+import type { Role, RouteKey } from '../types';
 
 const navItems = [
-  { to: '/dashboard', label: 'Dashboard' },
-  { to: '/screening-sessions', label: 'Screening Sessions' },
-  { to: '/student-registration', label: 'Student Registration' },
-  { to: '/students', label: 'Students' },
-  { to: '/schools', label: 'Schools' },
-  { to: '/districts', label: 'Districts & Taluks' },
-  { to: '/enumerators', label: 'Enumerators' },
-  { to: '/assignments', label: 'Assignments' },
-  { to: '/reports', label: 'Reports' },
-  { to: '/audit-logs', label: 'Audit Logs' },
-  { to: '/settings', label: 'Settings' },
-  { to: '/profile', label: 'Profile' },
+  { to: '/dashboard', label: 'Dashboard', shortLabel: 'Home', icon: Home },
+  { to: '/screening-sessions', label: 'Screening Sessions', shortLabel: 'Sessions', icon: ClipboardList },
+  { to: '/student-registration', label: 'Student Registration', shortLabel: 'Register', icon: UserPlus },
+  { to: '/students', label: 'Students', shortLabel: 'Students', icon: Users },
+  { to: '/schools', label: 'Schools', shortLabel: 'Schools', icon: School },
+  { to: '/districts', label: 'Districts & Taluks', shortLabel: 'Locations', icon: MapPinned },
+  { to: '/enumerators', label: 'Screening Faculty', shortLabel: 'Faculty', icon: Users },
+  { to: '/assignments', label: 'Assignments', shortLabel: 'Assignments', icon: ClipboardList },
+  { to: '/reports', label: 'Reports', shortLabel: 'Reports', icon: BarChart3 },
+  { to: '/audit-logs', label: 'Audit Logs', shortLabel: 'Audit logs', icon: ShieldCheck },
+  { to: '/settings', label: 'Settings', shortLabel: 'Settings', icon: Settings },
+  { to: '/profile', label: 'Profile', shortLabel: 'Profile', icon: UserCircle2 },
 ];
+
+const mobilePrimaryRoutes: Record<Role, string[]> = {
+  organization_admin: ['/dashboard', '/screening-sessions', '/students'],
+  district_manager: ['/dashboard', '/students', '/reports', '/profile'],
+  enumerator: ['/dashboard', '/screening-sessions', '/student-registration', '/students'],
+};
 
 export function AppLayout() {
   const { user, logout } = useAuth();
+  const { pathname } = useLocation();
   const [sidebarVisible, setSidebarVisible] = useState(() => window.matchMedia('(min-width: 768px)').matches);
+  const [moreVisible, setMoreVisible] = useState(false);
   const [logoutError, setLogoutError] = useState('');
   const isLocalTest = isLocalTestSessionActive();
+  const permittedNavItems = navItems.filter((item) => user && canAccessRoute(user.role, item.to.slice(1) as RouteKey));
+  const primaryNavItems = permittedNavItems.filter((item) => user && mobilePrimaryRoutes[user.role].includes(item.to));
+  const moreNavItems = permittedNavItems.filter((item) => !primaryNavItems.some((primaryItem) => primaryItem.to === item.to));
+  const mobileNavCount = primaryNavItems.length + (moreNavItems.length ? 1 : 0);
 
   useEffect(() => {
     const desktop = window.matchMedia('(min-width: 768px)');
@@ -103,29 +130,32 @@ export function AppLayout() {
       </aside>
       )}
 
-      <main className={`min-h-screen min-w-0 p-3 transition-[margin] duration-200 sm:p-4 md:p-6 xl:p-8 ${sidebarVisible ? 'md:ml-60 xl:ml-72' : ''}`}>
-        <div className="min-w-0 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200 sm:p-5 md:p-6">
-          <div className="mb-5 flex min-w-0 items-center justify-between gap-2 border-b border-slate-200 pb-4 sm:mb-6 sm:gap-4">
+      <main className={`app-mobile-main min-h-dvh min-w-0 p-0 transition-[margin] duration-200 md:p-6 xl:p-8 ${sidebarVisible ? 'md:ml-60 xl:ml-72' : ''}`}>
+        <div className="mx-auto min-h-dvh min-w-0 max-w-screen-2xl bg-white p-4 md:min-h-[calc(100dvh-3rem)] md:rounded-2xl md:p-6 md:shadow-sm md:ring-1 md:ring-slate-200">
+          <header className="app-mobile-header -mx-4 -mt-4 mb-5 flex min-w-0 items-center justify-between gap-2 border-b border-slate-200 bg-white/95 px-3 pb-3 pt-2 backdrop-blur sm:mb-6 sm:px-5 md:static md:mx-0 md:mt-0 md:bg-transparent md:px-0 md:pt-0">
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => setSidebarVisible((visible) => !visible)}
-                aria-label={sidebarVisible ? 'Hide navigation sidebar' : 'Show navigation sidebar'}
+                onClick={() => {
+                  setMoreVisible(false);
+                  setSidebarVisible((visible) => !visible);
+                }}
+                aria-label={sidebarVisible ? 'Hide navigation sidebar' : 'Show navigation menu'}
                 aria-expanded={sidebarVisible}
                 aria-controls="app-navigation"
                 className="shrink-0 rounded-lg p-2 text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-600"
               >
-                <Menu size={22} />
+                {sidebarVisible ? <X size={21} /> : <Menu size={21} />}
               </button>
               <div className="min-w-0">
-              <p className="hidden text-xs font-semibold uppercase tracking-[0.2em] text-cyan-700 sm:block">Operations overview</p>
-              <h1 className="truncate text-lg font-bold text-slate-900 sm:mt-1 sm:text-2xl">Student Health Hub</h1>
+                <p className="hidden text-xs font-semibold uppercase tracking-[0.2em] text-cyan-700 sm:block">Operations overview</p>
+                <h1 className="truncate text-lg font-bold text-slate-900 sm:mt-1 sm:text-2xl">Student Health Hub</h1>
               </div>
             </div>
             <div className="max-w-[42%] truncate rounded-full bg-emerald-100 px-2 py-1 text-right text-[10px] font-semibold text-emerald-700 sm:px-3 sm:text-xs">
               {user ? getRoleLabel(user.role) : 'Authenticated'}
             </div>
-          </div>
+          </header>
 
           {isLocalTest && <div role="status" className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
             <strong>Local test mode:</strong> this is not authenticated by Supabase. Screening records are stored only in this browser and will not sync to your organization.
@@ -133,6 +163,51 @@ export function AppLayout() {
           <Outlet />
         </div>
       </main>
+
+      {moreVisible && <button
+        type="button"
+        aria-label="Close additional navigation"
+        onClick={() => setMoreVisible(false)}
+        className="mobile-more-backdrop"
+      />}
+      {moreVisible && <nav id="mobile-more-menu" aria-label="More navigation" className="mobile-more-sheet">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-sm font-bold text-slate-900">More</h2>
+          <button type="button" onClick={() => setMoreVisible(false)} aria-label="Close more menu" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><X size={18} /></button>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {moreNavItems.map(({ to, label, icon: Icon }) => (
+            <NavLink key={to} to={to} onClick={() => setMoreVisible(false)} className={({ isActive }) => `flex min-h-20 flex-col items-center justify-center gap-2 rounded-xl border p-2 text-center text-xs font-medium ${isActive ? 'border-cyan-200 bg-cyan-50 text-cyan-800' : 'border-slate-200 bg-white text-slate-700'}`}>
+              <Icon size={20} aria-hidden="true" />
+              <span>{label}</span>
+            </NavLink>
+          ))}
+        </div>
+      </nav>}
+
+      {!sidebarVisible && <nav aria-label="Primary navigation" className={`mobile-bottom-nav ${mobileNavCount <= 4 ? 'mobile-bottom-nav--4' : 'mobile-bottom-nav--5'}`}>
+        {primaryNavItems.map(({ to, shortLabel, icon: Icon }) => (
+          <NavLink key={to} to={to} onClick={() => setMoreVisible(false)} className={({ isActive }) => `mobile-bottom-nav__item ${isActive ? 'mobile-bottom-nav__item--active' : ''}`}>
+            <Icon size={21} strokeWidth={isActiveRoute(pathname, to) ? 2.4 : 1.8} aria-hidden="true" />
+            <span>{shortLabel}</span>
+          </NavLink>
+        ))}
+        {moreNavItems.length > 0 && <button
+          type="button"
+          aria-label="More navigation options"
+          aria-expanded={moreVisible}
+          aria-controls="mobile-more-menu"
+          onClick={() => setMoreVisible((visible) => !visible)}
+          className={`mobile-bottom-nav__item ${moreVisible || moreNavItems.some((item) => item.to === pathname) ? 'mobile-bottom-nav__item--active' : ''}`}
+        >
+          <MoreHorizontal size={22} aria-hidden="true" />
+          <span>More</span>
+        </button>}
+      </nav>}
     </div>
   );
+}
+
+function isActiveRoute(pathname: string, route: string): boolean {
+  return pathname === route || pathname.startsWith(`${route}/`);
 }

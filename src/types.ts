@@ -6,8 +6,14 @@ export type AppUser = {
   name: string;
   email: string;
   role: Role;
+  isActive?: boolean;
   districtId?: string;
   schoolIds?: string[];
+};
+
+export type OwnerDataGrant = {
+  viewerId: string;
+  ownerId: string;
 };
 
 export type District = {
@@ -26,6 +32,7 @@ export type Taluk = {
 
 export type School = {
   id: string;
+  ownerId: string;
   name: string;
   code: string;
   districtId: string;
@@ -35,6 +42,7 @@ export type School = {
 
 export type ScreeningSession = {
   id: string;
+  ownerId: string;
   name: string;
   districtId: string;
   districtName: string;
@@ -52,6 +60,7 @@ export type ScreeningSession = {
 
 export type StudentRecord = {
   id: string;
+  ownerId: string;
   sessionId: string;
   siNumber: string;
   studentName: string;

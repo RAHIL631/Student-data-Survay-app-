@@ -12,6 +12,7 @@ import {
   resolveConflictKeepServer,
   savePendingSubmission,
 } from '../lib/pendingSubmissions';
+import { PENDING_SUBMISSIONS_SYNCED_EVENT } from '../lib/pendingSubmissionSync';
 import type { PendingStudentSubmission, StudentRecord } from '../types';
 
 const initialForm = {
@@ -19,7 +20,7 @@ const initialForm = {
   studentName: '',
   className: '',
   section: '',
-  sex: 'Male',
+  sex: '',
   dateOfBirth: '',
   heightCm: '',
   weightKg: '',
@@ -30,6 +31,43 @@ const initialForm = {
   additionalRemarks: '',
   sessionId: '',
 };
+
+function getStudentDraftKey(userId: string): string {
+  return `student-health-hub.student-draft.v1.${userId}`;
+}
+
+function hasStudentDraft(form: typeof initialForm): boolean {
+  return Object.entries(form).some(([key, value]) => key !== 'sessionId' && value.trim() !== '');
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseDateOfBirth(value: string): string | null {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
+  if (!match) return null;
+
+  const [, day, month, year] = match;
+  const isoDate = `${year}-${month}-${day}`;
+  const date = new Date(`${isoDate}T00:00:00Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === isoDate ? isoDate : null;
+}
+
+function formatDateOfBirthInput(value: string): string {
+  const digits = value.replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
+function isStudentSex(value: string): value is StudentRecord['sex'] {
+  return value === 'Male' || value === 'Female' || value === 'Other' || value === 'Prefer not to specify';
+}
+
+function isSkeletalDeformity(value: string): value is StudentRecord['skeletalDeformity'] {
+  return value === 'No' || value === 'Yes' || value === 'Suspected' || value === 'Not assessed';
+}
 
 export function StudentRegistrationPage() {
   const [searchParams] = useSearchParams();
@@ -44,6 +82,13 @@ export function StudentRegistrationPage() {
   const [pendingStorageError, setPendingStorageError] = useState('');
   const [pendingResolutionId, setPendingResolutionId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [savedSiNumber, setSavedSiNumber] = useState('');
+  const [draftOwnerId, setDraftOwnerId] = useState<string | null>(null);
+  const [draftSavedAt, setDraftSavedAt] = useState('');
+  const [draftClock, setDraftClock] = useState(Date.now());
+  const [draftError, setDraftError] = useState('');
+  const [syncMessage, setSyncMessage] = useState('');
+  const [isDirty, setIsDirty] = useState(false);
   const saveAnother = useRef(false);
 
   useEffect(() => {
@@ -67,16 +112,106 @@ export function StudentRegistrationPage() {
           }
         });
     };
+    const handleSynchronized = (event: Event) => {
+      const detail = (event as CustomEvent<{ userId: string; syncedCount: number }>).detail;
+      if (!detail || detail.userId !== user.id || detail.syncedCount < 1) return;
+      setSyncMessage(`${detail.syncedCount} records synced successfully.`);
+      refreshPendingSubmissions();
+    };
     refreshPendingSubmissions();
     window.addEventListener(PENDING_SUBMISSIONS_CHANGED_EVENT, refreshPendingSubmissions);
+    window.addEventListener(PENDING_SUBMISSIONS_SYNCED_EVENT, handleSynchronized);
     window.addEventListener('focus', refreshPendingSubmissions);
 
     return () => {
       active = false;
       window.removeEventListener(PENDING_SUBMISSIONS_CHANGED_EVENT, refreshPendingSubmissions);
+      window.removeEventListener(PENDING_SUBMISSIONS_SYNCED_EVENT, handleSynchronized);
       window.removeEventListener('focus', refreshPendingSubmissions);
     };
   }, [user]);
+
+  const urlSessionId = searchParams.get('sessionId') ?? '';
+  useEffect(() => {
+    if (!user) {
+      setDraftOwnerId(null);
+      return;
+    }
+
+    setDraftOwnerId(null);
+    try {
+      const saved = localStorage.getItem(getStudentDraftKey(user.id));
+      if (saved) {
+        const parsed: unknown = JSON.parse(saved);
+        if (!isRecord(parsed) || !isRecord(parsed.form)) {
+          throw new Error('The saved student draft has an invalid format.');
+        }
+
+        const restored = { ...initialForm };
+        for (const key of Object.keys(initialForm) as Array<keyof typeof initialForm>) {
+          const value = parsed.form[key];
+          if (typeof value === 'string') restored[key] = value;
+        }
+        setForm({ ...restored, sessionId: urlSessionId || restored.sessionId });
+        setDraftSavedAt(typeof parsed.savedAt === 'string' && Number.isFinite(Date.parse(parsed.savedAt)) ? parsed.savedAt : '');
+        setIsDirty(hasStudentDraft(restored));
+      } else {
+        setForm({ ...initialForm, sessionId: urlSessionId });
+        setDraftSavedAt('');
+        setIsDirty(false);
+      }
+      setDraftError('');
+    } catch (restoreError) {
+      console.error('Unable to restore the student draft.', restoreError);
+      setDraftError('The saved student draft could not be restored. It remains on this device.');
+    } finally {
+      setDraftOwnerId(user.id);
+    }
+  }, [user?.id, urlSessionId]);
+
+  useEffect(() => {
+    if (!user || draftOwnerId !== user.id || draftError) return;
+    const key = getStudentDraftKey(user.id);
+    if (!hasStudentDraft(form)) {
+      try {
+        localStorage.removeItem(key);
+        setDraftSavedAt('');
+      } catch (storageError) {
+        console.error('Unable to clear the empty student draft.', storageError);
+        setDraftError('The empty draft could not be cleared from this device.');
+      }
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      try {
+        const savedAt = new Date().toISOString();
+        localStorage.setItem(key, JSON.stringify({ form, savedAt }));
+        setDraftSavedAt(savedAt);
+        setDraftError('');
+      } catch (storageError) {
+        console.error('Unable to save the student draft on this device.', storageError);
+        setDraftError('The draft could not be saved on this device.');
+      }
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [form, user?.id, draftOwnerId, draftError]);
+
+  useEffect(() => {
+    if (!draftSavedAt) return;
+    const timer = window.setInterval(() => setDraftClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [draftSavedAt]);
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
+  }, [isDirty]);
 
   const today = getLocalDateString();
   const heightCm = Number(form.heightCm);
@@ -85,14 +220,36 @@ export function StudentRegistrationPage() {
   const midArmCircumferenceCm = form.midArmCircumferenceCm === '' ? null : Number(form.midArmCircumferenceCm);
   const selectedSession = sessions?.find((session) => session.id === form.sessionId && session.status === 'active');
   const screeningDate = selectedSession?.date ?? today;
-  const age = form.dateOfBirth ? calculateAge(form.dateOfBirth, screeningDate) : '';
+  const dateOfBirth = parseDateOfBirth(form.dateOfBirth);
+  const age = dateOfBirth ? calculateAge(dateOfBirth, screeningDate) : '';
   const bmi = calculateBmi(weightKg, heightCm);
 
   const handleChange = (key: keyof typeof initialForm, value: string) => {
     setForm((current) => ({ ...current, [key]: value }));
     setSubmitted(false);
     setSubmissionStatus(null);
+    setSavedSiNumber('');
+    setDraftError('');
+    setIsDirty(true);
     setError('');
+  };
+
+  const clearSavedDraft = (userId: string) => {
+    try {
+      localStorage.removeItem(getStudentDraftKey(userId));
+      setDraftSavedAt('');
+      setDraftError('');
+    } catch (storageError) {
+      console.error('Unable to clear the saved student draft.', storageError);
+      setDraftError('The student was saved, but the local draft could not be cleared from this device.');
+    }
+    setIsDirty(false);
+  };
+
+  const handleCancel = () => {
+    if (isDirty && hasStudentDraft(form) && !window.confirm('Discard the unsaved student details?')) return;
+    if (user) clearSavedDraft(user.id);
+    navigate('/screening-sessions');
   };
 
   const handleKeepServerVersion = async (localId: string) => {
@@ -128,26 +285,43 @@ export function StudentRegistrationPage() {
       !Number.isFinite(weightKg) || weightKg <= 0 ||
       (skinThicknessMm !== null && (!Number.isFinite(skinThicknessMm) || skinThicknessMm < 0)) ||
       (midArmCircumferenceCm !== null && (!Number.isFinite(midArmCircumferenceCm) || midArmCircumferenceCm < 0)) ||
-      typeof age !== 'number' || age < 0
+      !dateOfBirth || dateOfBirth > screeningDate ||
+      typeof age !== 'number' || !Number.isInteger(age) || age < 0 || age > 120
     ) {
-      setError('Enter valid birth date and positive height and weight measurements.');
+      setError('Enter a valid date of birth as DD/MM/YYYY (age must be 0–120 at screening), and positive height and weight measurements.');
+      return;
+    }
+
+    if (!form.studentName.trim() || !form.className.trim() || !form.section.trim()) {
+      setError('Enter the student name, class, and section before saving.');
+      return;
+    }
+
+    if (!isStudentSex(form.sex) || !isSkeletalDeformity(form.skeletalDeformity)) {
+      setError('Choose a valid sex and screening observation before saving.');
+      return;
+    }
+
+    if ((form.skeletalDeformity === 'Yes' || form.skeletalDeformity === 'Suspected') && !form.skeletalObservation.trim()) {
+      setError('Describe the skeletal observation when it is marked Yes or Suspected.');
       return;
     }
 
     const record: StudentRecord = {
       id: '',
+      ownerId: selectedSession.ownerId,
       sessionId: selectedSession.id,
-      siNumber: form.siNumber.trim(),
+      siNumber: '',
       studentName: form.studentName.trim(),
       className: form.className.trim(),
       section: form.section.trim(),
-      sex: form.sex === 'Female' || form.sex === 'Other' || form.sex === 'Prefer not to specify' ? form.sex : 'Male',
-      dateOfBirth: form.dateOfBirth,
+      sex: form.sex,
+      dateOfBirth,
       age,
       heightCm,
       weightKg,
       bmi,
-      skeletalDeformity: form.skeletalDeformity as StudentRecord['skeletalDeformity'],
+      skeletalDeformity: form.skeletalDeformity,
       skeletalObservation: form.skeletalObservation.trim(),
       skinThicknessMm,
       midArmCircumferenceCm,
@@ -161,6 +335,7 @@ export function StudentRegistrationPage() {
 
     setIsSaving(true);
     try {
+      const idempotencyKey = crypto.randomUUID();
       const submission = {
         organizationId: user.organizationId,
         userId: user.id,
@@ -169,16 +344,20 @@ export function StudentRegistrationPage() {
       };
 
       if (!isLocalTestSessionActive() && !navigator.onLine) {
-        await savePendingSubmission(submission);
+        await savePendingSubmission(submission, { idempotencyKey });
+        clearSavedDraft(user.id);
         setForm({ ...initialForm, sessionId: selectedSession.id });
         setSubmissionStatus('offline');
+        setSavedSiNumber('');
         setSubmitted(true);
         saveAnother.current = false;
         return;
       }
 
-      await createStudentScreening(submission);
+      const siNumber = await createStudentScreening(submission, { idempotencyKey });
+      clearSavedDraft(user.id);
       setSubmissionStatus('online');
+      setSavedSiNumber(siNumber);
       if (saveAnother.current) {
         setForm({ ...initialForm, sessionId: selectedSession.id });
         setSubmitted(true);
@@ -198,8 +377,11 @@ export function StudentRegistrationPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-2xl font-bold text-slate-900">Student Screening</h2>
-        <button type="button" onClick={() => navigate('/screening-sessions')} className="rounded-xl border border-slate-300 px-4 py-2 font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+        <div>
+          <h2 className="text-2xl font-bold text-slate-900">Student Screening</h2>
+          <p className="mt-1 text-sm text-slate-600">Enter the student’s details and measurements for this screening session.</p>
+        </div>
+        <button type="button" onClick={handleCancel} className="rounded-xl border border-slate-300 px-4 py-2 font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
       </div>
         {pendingSubmissions.length > 0 && <section aria-label="Offline submission status" className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
           <h3 className="font-semibold text-slate-900">Saved submissions on this device</h3>
@@ -223,7 +405,7 @@ export function StudentRegistrationPage() {
               }[submission.syncStatus];
 
               return <li key={submission.localId} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 p-3 text-sm">
-                <span>SI Number {submission.data.student.siNumber} · {new Date(submission.createdAt).toLocaleString()}</span>
+                <span>SI Number {submission.data.student.siNumber || 'assigned when synced'} · {new Date(submission.createdAt).toLocaleString()}</span>
                 <span className={`rounded-full px-2.5 py-1 font-medium ${statusStyle}`}>{statusLabel}</span>
                 {submission.lastError && <span className="basis-full text-xs text-rose-800">{submission.lastError}{submission.retryable ? ' — will retry automatically when possible.' : ''}</span>}
                 {submission.syncStatus === 'conflict' && <div className="basis-full space-y-3 rounded-lg border border-rose-200 bg-white p-3">
@@ -253,10 +435,14 @@ export function StudentRegistrationPage() {
           </ul>
         </section>}
         {pendingStorageError && <div role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">{pendingStorageError}</div>}
+        {draftError && <div role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">{draftError}</div>}
+        {syncMessage && <div role="status" className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800">{syncMessage}</div>}
         {sessionsError && <div role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">Screening sessions could not be loaded: {sessionsError}</div>}
       {!isLoading && !sessionsError && !(sessions ?? []).some((session) => session.status === 'active') && <p className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">No active screening session is assigned or available to your account. Ask an administrator to create a session or assign you to one.</p>}
+      {!isLoading && !sessionsError && form.sessionId && !selectedSession && <p role="alert" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">The selected session is no longer active or is unavailable. Choose an active session to continue.</p>}
 
       <form onSubmit={(event) => void handleSubmit(event)} className="card space-y-5">
+        {draftSavedAt && <p role="status" className="text-xs font-medium text-slate-500">Draft saved {Math.max(0, Math.floor((draftClock - Date.parse(draftSavedAt)) / 1000))}s ago.</p>}
         <div className="rounded-xl bg-cyan-50 p-4 text-sm text-cyan-950">
           <div className="font-semibold">Active screening session</div>
           <label className="mt-2 block font-medium">Session
@@ -273,12 +459,12 @@ export function StudentRegistrationPage() {
         </div>
         <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600">Student information</h3>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          <label className="text-sm font-medium text-slate-700">SI Number<input required value={form.siNumber} onChange={(event) => handleChange('siNumber', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" /></label>
-          <label className="text-sm font-medium text-slate-700">Student Name<input required value={form.studentName} onChange={(event) => handleChange('studentName', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" /></label>
-          <label className="text-sm font-medium text-slate-700">Class<select required value={form.className} onChange={(event) => handleChange('className', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5"><option value="">Select class</option>{['1','2','3','4','5','6','7','8','9','10','Other'].map((value) => <option key={value}>{value}</option>)}</select></label>
-          <label className="text-sm font-medium text-slate-700">Section<select required value={form.section} onChange={(event) => handleChange('section', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5"><option value="">Select section</option>{['A','B','C','D','Other'].map((value) => <option key={value}>{value}</option>)}</select></label>
-          <label className="text-sm font-medium text-slate-700">Sex<select value={form.sex} onChange={(event) => handleChange('sex', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5"><option>Male</option><option>Female</option><option>Other</option><option>Prefer not to specify</option></select></label>
-          <label className="text-sm font-medium text-slate-700">Date of Birth<input required type="date" max={screeningDate} value={form.dateOfBirth} onChange={(event) => handleChange('dateOfBirth', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" /></label>
+          <label className="text-sm font-medium text-slate-700">SI NO<input readOnly value="Assigned automatically on save" className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2.5 text-slate-500" /><span className="mt-1 block text-xs font-normal text-slate-500">The number restarts for each screening session.</span></label>
+          <label className="text-sm font-medium text-slate-700">Student Name<input required maxLength={200} autoComplete="off" value={form.studentName} onChange={(event) => handleChange('studentName', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" /></label>
+          <label className="text-sm font-medium text-slate-700">Class / Grade<select required value={form.className} onChange={(event) => handleChange('className', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5"><option value="">Select class</option>{[...Array.from({ length: 10 }, (_, index) => String(index + 1)), 'Other'].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+          <label className="text-sm font-medium text-slate-700">Section<select required value={form.section} onChange={(event) => handleChange('section', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5"><option value="">Select section</option>{['A', 'B', 'C', 'D', 'Other'].map((value) => <option key={value}>{value}</option>)}</select></label>
+          <label className="text-sm font-medium text-slate-700">Sex<select required value={form.sex} onChange={(event) => handleChange('sex', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5"><option value="">Select an option</option><option>Male</option><option>Female</option><option>Other</option><option>Prefer not to specify</option></select></label>
+          <label className="text-sm font-medium text-slate-700">Date of Birth (DD/MM/YYYY)<input required type="text" inputMode="numeric" autoComplete="off" maxLength={10} pattern="\d{2}/\d{2}/\d{4}" placeholder="DD/MM/YYYY" value={form.dateOfBirth} onChange={(event) => handleChange('dateOfBirth', formatDateOfBirthInput(event.target.value))} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" /><span className="mt-1 block text-xs font-normal text-slate-500">Age is calculated using the screening date.</span></label>
           <label className="text-sm font-medium text-slate-700">Height (cm)<input required type="number" min="1" step="0.1" value={form.heightCm} onChange={(event) => handleChange('heightCm', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" /></label>
           <label className="text-sm font-medium text-slate-700">Weight (kg)<input required type="number" min="0.1" step="0.1" value={form.weightKg} onChange={(event) => handleChange('weightKg', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" /></label>
           <label className="text-sm font-medium text-slate-700">Age at screening<input value={age} readOnly className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2.5" /></label>
@@ -291,13 +477,13 @@ export function StudentRegistrationPage() {
             <select value={form.skeletalDeformity} onChange={(event) => handleChange('skeletalDeformity', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5"><option>No</option><option>Yes</option><option>Suspected</option><option>Not assessed</option></select>
           </label>
           {(form.skeletalDeformity === 'Yes' || form.skeletalDeformity === 'Suspected') && <label className="text-sm font-medium text-slate-700">Type / Observation
-            <input required value={form.skeletalObservation} onChange={(event) => handleChange('skeletalObservation', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" />
+            <textarea required rows={2} maxLength={1000} value={form.skeletalObservation} onChange={(event) => handleChange('skeletalObservation', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" />
           </label>}
-          <label className="text-sm font-medium text-slate-700">Skin Thickness (mm)<input type="number" min="0" step="0.1" value={form.skinThicknessMm} onChange={(event) => handleChange('skinThicknessMm', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" /></label>
-          <label className="text-sm font-medium text-slate-700">Mid-Arm Circumference (cm)<input type="number" min="0" step="0.1" value={form.midArmCircumferenceCm} onChange={(event) => handleChange('midArmCircumferenceCm', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" /></label>
+          <label className="text-sm font-medium text-slate-700">Skin Thickness (mm)<span className="mt-1 block text-xs font-normal text-slate-500">Optional — leave blank if not measured.</span><input type="number" min="0" step="0.1" value={form.skinThicknessMm} onChange={(event) => handleChange('skinThicknessMm', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" /></label>
+          <label className="text-sm font-medium text-slate-700">Mid-Arm Circumference (cm)<span className="mt-1 block text-xs font-normal text-slate-500">Optional — leave blank if not measured.</span><input type="number" min="0" step="0.1" value={form.midArmCircumferenceCm} onChange={(event) => handleChange('midArmCircumferenceCm', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" /></label>
         </div>
         <label className="block text-sm font-medium text-slate-700">Additional Remarks
-          <textarea rows={3} value={form.additionalRemarks} onChange={(event) => handleChange('additionalRemarks', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" />
+          <textarea rows={3} maxLength={2000} value={form.additionalRemarks} onChange={(event) => handleChange('additionalRemarks', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" />
         </label>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-slate-600">
@@ -309,7 +495,7 @@ export function StudentRegistrationPage() {
           </div>
         </div>
 
-        {submitted && <div role="status" className={`rounded-xl px-4 py-3 text-sm ${submissionStatus === 'offline' ? 'bg-amber-50 text-amber-900' : 'bg-emerald-50 text-emerald-800'}`}>{submissionStatus === 'offline' ? 'Saved offline on this device. It is pending and will sync automatically when connected.' : 'Student screening saved.'}</div>}
+        {submitted && <div role="status" className={`rounded-xl px-4 py-3 text-sm ${submissionStatus === 'offline' ? 'bg-amber-50 text-amber-900' : 'bg-emerald-50 text-emerald-800'}`}>{submissionStatus === 'offline' ? 'Offline — data saved on this device. It is pending and will sync automatically when connected; the SI NO will be assigned when synced.' : `Student screening saved with SI NO ${savedSiNumber}.`}</div>}
         {error && <div role="alert" className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>}
       </form>
     </div>

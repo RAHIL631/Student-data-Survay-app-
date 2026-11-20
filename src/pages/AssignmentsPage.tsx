@@ -13,7 +13,7 @@ export function AssignmentsPage() {
   const [form, setForm] = useState({ sessionId: '', enumeratorId: '' });
   const [saveError, setSaveError] = useState('');
   const [saving, setSaving] = useState(false);
-  const canManage = user?.role === 'organization_admin' || user?.role === 'district_manager';
+  const canManage = user?.role === 'organization_admin';
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -37,16 +37,19 @@ export function AssignmentsPage() {
       <h2 className="text-2xl font-bold text-slate-900">Assignments</h2>
       {canManage && <form onSubmit={(event) => void handleSubmit(event)} className="card grid gap-4 md:grid-cols-[1fr_1fr_auto]">
         <label className="text-sm font-medium text-slate-700">Screening session
-          <select required value={form.sessionId} onChange={(event) => setForm((current) => ({ ...current, sessionId: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+          <select required value={form.sessionId} onChange={(event) => {
+            const session = sessions?.find((item) => item.id === event.target.value);
+            setForm({ sessionId: event.target.value, enumeratorId: session?.ownerId ?? '' });
+          }} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
             <option value="">Select session</option>{(sessions ?? []).filter((session) => session.status === 'active').map((session) => <option key={session.id} value={session.id}>{session.name}</option>)}
           </select>
         </label>
-        <label className="text-sm font-medium text-slate-700">Enumerator
+        <label className="text-sm font-medium text-slate-700">Screening Faculty
           <select required value={form.enumeratorId} onChange={(event) => setForm((current) => ({ ...current, enumeratorId: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-            <option value="">Select enumerator</option>{(enumerators ?? []).map((enumerator) => <option key={enumerator.id} value={enumerator.id}>{enumerator.name} · {enumerator.email}</option>)}
+            <option value="">Select the school’s Screening Faculty</option>{(enumerators ?? []).filter((enumerator) => enumerator.id === sessions?.find((session) => session.id === form.sessionId)?.ownerId).map((enumerator) => <option key={enumerator.id} value={enumerator.id}>{enumerator.name} · {enumerator.email}</option>)}
           </select>
         </label>
-        <button disabled={saving || !sessions?.length || !enumerators?.length} className="self-end rounded-xl bg-cyan-600 px-4 py-2.5 font-medium text-white disabled:opacity-50">{saving ? 'Saving…' : 'Assign'}</button>
+        <button disabled={saving || !sessions?.length || !enumerators?.length || !form.enumeratorId || (assignments ?? []).find((item) => item.session.id === form.sessionId)?.enumerators.some((member) => member.id === form.enumeratorId)} className="self-end rounded-xl bg-cyan-600 px-4 py-2.5 font-medium text-white disabled:opacity-50">{saving ? 'Saving…' : 'Assign'}</button>
         {saveError && <p role="alert" className="text-sm text-rose-700 md:col-span-3">{saveError}</p>}
       </form>}
       {error && <div role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">Assignments could not be loaded: {error} <button onClick={reload} className="ml-2 underline">Retry</button></div>}
@@ -55,12 +58,12 @@ export function AssignmentsPage() {
       {!error && (assignments?.length ?? 0) > 0 && (
         <div className="table-shell">
           <table>
-            <thead><tr><th>Session</th><th>Assigned enumerators</th><th>Status</th></tr></thead>
+            <thead><tr><th>Session</th><th>Screening Faculty</th><th>Status</th></tr></thead>
             <tbody>
               {(assignments ?? []).map(({ session, enumerators }) => (
                 <tr key={session.id}>
                   <td>{session.name}</td>
-                  <td>{enumerators.map((enumerator) => enumerator.name).join(', ') || 'No enumerators assigned'}</td>
+                  <td>{enumerators.map((enumerator) => enumerator.name).join(', ') || 'No Screening Faculty assigned'}</td>
                   <td><span className="badge bg-emerald-100 text-emerald-700">{session.status}</span></td>
                 </tr>
               ))}

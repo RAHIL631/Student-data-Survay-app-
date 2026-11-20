@@ -10,6 +10,7 @@ const LEASE_DURATION_MS = 5 * 60 * 1000;
 const LEASE_REFRESH_INTERVAL_MS = 60 * 1000;
 const activeRuns = new Map();
 const retryTimers = new Map();
+export const PENDING_SUBMISSIONS_SYNCED_EVENT = 'student-health-hub:pending-submissions-synced';
 
 function isOnline() {
   return typeof navigator === 'undefined' || navigator.onLine !== false;
@@ -66,14 +67,17 @@ async function uploadClaimedSubmission(submission, upload, options) {
         retryable: true,
         lastError: 'The device went offline before synchronization started.',
       });
-      return;
+      return false;
     }
 
-    await upload(submission.data, submission.idempotencyKey);
-    await updateClaimedSubmission(submission.localId, syncToken, {
+    const assignedSiNumber = await upload(submission.data, submission.idempotencyKey);
+    return await updateClaimedSubmission(submission.localId, syncToken, {
       syncStatus: 'synced',
       syncedAt: new Date(now()).toISOString(),
       retryable: false,
+      ...(typeof assignedSiNumber === 'string'
+        ? { data: { ...submission.data, student: { ...submission.data.student, siNumber: assignedSiNumber } } }
+        : {}),
     });
   } catch (error) {
     const message = getErrorMessage(error);
@@ -86,7 +90,7 @@ async function uploadClaimedSubmission(submission, upload, options) {
         ...(error.serverRecord ? { serverRecord: error.serverRecord } : {}),
         lastError: message,
       });
-      return;
+      return false;
     }
 
     if (!isOnline()) {
@@ -95,7 +99,7 @@ async function uploadClaimedSubmission(submission, upload, options) {
         retryable: true,
         lastError: message,
       });
-      return;
+      return false;
     }
 
     const retryable = isRetryableError(error);
@@ -111,6 +115,7 @@ async function uploadClaimedSubmission(submission, upload, options) {
       lastError: message,
     });
     console.error(`Unable to synchronize offline submission ${submission.localId}.`, error);
+    return false;
   } finally {
     globalThis.clearInterval(leaseInterval);
   }
@@ -167,9 +172,10 @@ export function syncPendingSubmissions(userId, options = {}) {
   }
   const run = (async () => {
     if (!isOnline()) {
-      return;
+      return 0;
     }
 
+    let syncedCount = 0;
     while (isOnline()) {
       const submission = await claimNextPendingSubmission(
         userId,
@@ -180,8 +186,11 @@ export function syncPendingSubmissions(userId, options = {}) {
         break;
       }
 
-      await uploadClaimedSubmission(submission, upload, options);
+      if (await uploadClaimedSubmission(submission, upload, options)) {
+        syncedCount += 1;
+      }
     }
+    return syncedCount;
   })();
 
   activeRuns.set(userId, run);

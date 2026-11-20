@@ -1,5 +1,5 @@
 import type { PostgrestError } from '@supabase/supabase-js';
-import type { AppUser, AuditLog, District, School, ScreeningSession, StudentRecord, Taluk } from '../types';
+import type { AppUser, AuditLog, District, OwnerDataGrant, School, ScreeningSession, StudentRecord, Taluk } from '../types';
 import { verifyDuplicateStudentSubmission } from './studentSubmissionIdempotency.js';
 import { requireSupabase } from './supabase';
 import {
@@ -30,13 +30,16 @@ export async function getProfile(userId: string): Promise<AppUser> {
 
   const { data, error } = await requireSupabase()
     .from('profiles')
-    .select('id, organization_id, email, full_name, role, district_id')
+    .select('id, organization_id, email, full_name, role, district_id, is_active')
     .eq('id', userId)
     .maybeSingle();
 
   throwIfError(error);
   if (!data) {
     throw new Error('Your account is authenticated but has no organization profile. Ask an organization administrator to provision your profile.');
+  }
+  if (!data.is_active) {
+    throw new Error('This account is inactive. Contact an administrator for access.');
   }
 
   return {
@@ -45,6 +48,7 @@ export async function getProfile(userId: string): Promise<AppUser> {
     email: data.email,
     name: data.full_name,
     role: data.role,
+    isActive: data.is_active,
     districtId: data.district_id ?? undefined,
   };
 }
@@ -112,12 +116,13 @@ export async function getSchools(): Promise<School[]> {
 
   const { data, error } = await requireSupabase()
     .from('schools')
-    .select('id, name, code, district_id, taluk_id, status')
+    .select('id, owner_id, name, code, district_id, taluk_id, status')
     .order('name');
 
   throwIfError(error);
   return (data ?? []).map((row) => ({
     id: row.id,
+    ownerId: row.owner_id,
     name: row.name,
     code: row.code,
     districtId: row.district_id,
@@ -140,7 +145,7 @@ export async function getScreeningSessions(): Promise<ScreeningSession[]> {
     { data: taluks, error: taluksError },
   ] = await Promise.all([
     client.from('screening_sessions')
-      .select('id, name, district_id, taluk_id, school_id, beo_name, head_master_name, screening_faculty_name, screening_date, status')
+      .select('id, owner_id, name, district_id, taluk_id, school_id, beo_name, head_master_name, screening_faculty_name, screening_date, status')
       .order('screening_date', { ascending: false }),
     client.from('session_assignments').select('session_id, enumerator_id'),
     client.from('schools').select('id, name'),
@@ -160,6 +165,7 @@ export async function getScreeningSessions(): Promise<ScreeningSession[]> {
 
   return (sessions ?? []).map((row) => ({
     id: row.id,
+    ownerId: row.owner_id,
     name: row.name,
     districtId: row.district_id,
     districtName: districtNames.get(row.district_id) ?? row.district_id,
@@ -172,9 +178,12 @@ export async function getScreeningSessions(): Promise<ScreeningSession[]> {
     screeningFacultyName: row.screening_faculty_name,
     date: row.screening_date,
     status: row.status,
-    enumerators: (assignments ?? [])
-      .filter((assignment) => assignment.session_id === row.id)
-      .map((assignment) => assignment.enumerator_id),
+    enumerators: [...new Set([
+      row.owner_id,
+      ...(assignments ?? [])
+        .filter((assignment) => assignment.session_id === row.id)
+        .map((assignment) => assignment.enumerator_id),
+    ])],
   }));
 }
 
@@ -185,12 +194,13 @@ export async function getStudentRecords(): Promise<StudentRecord[]> {
 
   const { data, error } = await requireSupabase()
     .from('student_screenings')
-    .select('id, session_id, si_number, student_name, class_name, section, sex, date_of_birth, age, height_cm, weight_kg, bmi, skeletal_deformity, skeletal_observation, skin_thickness_mm, mid_arm_circumference_cm, additional_remarks, district_id, taluk_id, school_id, screening_date, status')
+    .select('id, owner_id, session_id, si_number, student_name, class_name, section, sex, date_of_birth, age, height_cm, weight_kg, bmi, skeletal_deformity, skeletal_observation, skin_thickness_mm, mid_arm_circumference_cm, additional_remarks, district_id, taluk_id, school_id, screening_date, status')
     .order('screening_date', { ascending: false });
 
   throwIfError(error);
   return (data ?? []).map((row) => ({
     id: row.id,
+    ownerId: row.owner_id,
     sessionId: row.session_id ?? '',
     siNumber: row.si_number,
     studentName: row.student_name,
@@ -222,8 +232,9 @@ export async function getEnumerators(): Promise<AppUser[]> {
 
   const { data, error } = await requireSupabase()
     .from('profiles')
-    .select('id, organization_id, email, full_name, role, district_id')
+    .select('id, organization_id, email, full_name, role, district_id, is_active')
     .eq('role', 'enumerator')
+    .eq('is_active', true)
     .order('full_name');
 
   throwIfError(error);
@@ -233,6 +244,7 @@ export async function getEnumerators(): Promise<AppUser[]> {
     email: row.email,
     name: row.full_name,
     role: row.role,
+    isActive: row.is_active,
     districtId: row.district_id ?? undefined,
   }));
 }
@@ -244,7 +256,7 @@ export async function getOrganizationUsers(): Promise<AppUser[]> {
 
   const { data, error } = await requireSupabase()
     .from('profiles')
-    .select('id, organization_id, email, full_name, role, district_id')
+    .select('id, organization_id, email, full_name, role, district_id, is_active')
     .order('full_name');
   throwIfError(error);
   return (data ?? []).map((row) => ({
@@ -253,8 +265,34 @@ export async function getOrganizationUsers(): Promise<AppUser[]> {
     email: row.email,
     name: row.full_name,
     role: row.role,
+    isActive: row.is_active,
     districtId: row.district_id ?? undefined,
   }));
+}
+
+export async function getOwnerDataGrants(): Promise<OwnerDataGrant[]> {
+  if (isLocalTestSessionActive()) {
+    return [];
+  }
+
+  const { data, error } = await requireSupabase()
+    .from('owner_data_grants')
+    .select('viewer_id, owner_id')
+    .order('viewer_id');
+  throwIfError(error);
+  return (data ?? []).map((row) => ({
+    viewerId: row.viewer_id,
+    ownerId: row.owner_id,
+  }));
+}
+
+export async function setOwnerDataGrant(viewerId: string, ownerId: string, shouldGrant: boolean): Promise<void> {
+  const { error } = await requireSupabase().rpc('set_owner_data_grant', {
+    target_viewer_id: viewerId,
+    target_owner_id: ownerId,
+    should_grant: shouldGrant,
+  });
+  throwIfError(error);
 }
 
 export async function provisionOrganizationUser(input: {
@@ -268,13 +306,33 @@ export async function provisionOrganizationUser(input: {
   }
 
   const { data, error } = await requireSupabase().functions.invoke('admin-provision-user', {
-    body: input,
+    body: { ...input, action: 'invite' },
   });
   if (error) {
     throw new Error(error.message);
   }
   if (data?.error) {
     throw new Error(typeof data.error === 'string' ? data.error : 'The invitation could not be sent.');
+  }
+  return { warning: typeof data?.warning === 'string' ? data.warning : undefined };
+}
+
+export async function manageOrganizationUser(input: {
+  userId: string;
+  action: 'reset_password' | 'deactivate' | 'reactivate';
+}): Promise<{ warning?: string }> {
+  if (isLocalTestSessionActive()) {
+    throw new Error('Account management is not available in local test mode.');
+  }
+
+  const { data, error } = await requireSupabase().functions.invoke('admin-provision-user', {
+    body: { action: input.action, targetUserId: input.userId },
+  });
+  if (error) {
+    throw new Error(error.message);
+  }
+  if (data?.error) {
+    throw new Error(typeof data.error === 'string' ? data.error : 'The account action could not be completed.');
   }
   return { warning: typeof data?.warning === 'string' ? data.warning : undefined };
 }
@@ -294,8 +352,9 @@ export async function getAssignments(): Promise<Array<{
     getScreeningSessions(),
     client.from('session_assignments').select('session_id, enumerator_id'),
     client.from('profiles')
-      .select('id, organization_id, email, full_name, role, district_id')
+      .select('id, organization_id, email, full_name, role, district_id, is_active')
       .eq('role', 'enumerator')
+      .eq('is_active', true)
       .order('full_name'),
   ]);
 
@@ -308,14 +367,20 @@ export async function getAssignments(): Promise<Array<{
     email: row.email,
     name: row.full_name,
     role: row.role,
+    isActive: row.is_active,
     districtId: row.district_id ?? undefined,
   }));
 
   return sessions.map((session) => {
     const assignedEnumerators: AppUser[] = [];
-    for (const assignment of assignments.data ?? []) {
-      if (assignment.session_id !== session.id) continue;
-      const enumerator = enumerators.find((candidate) => candidate.id === assignment.enumerator_id);
+    const assignedIds = new Set([
+      session.ownerId,
+      ...(assignments.data ?? [])
+        .filter((assignment) => assignment.session_id === session.id)
+        .map((assignment) => assignment.enumerator_id),
+    ]);
+    for (const assignedId of assignedIds) {
+      const enumerator = enumerators.find((candidate) => candidate.id === assignedId);
       if (enumerator) assignedEnumerators.push(enumerator);
     }
 
@@ -347,7 +412,6 @@ export async function getAuditLogs(): Promise<AuditLog[]> {
 
 export async function createScreeningSession(input: {
   organizationId: string;
-  userId: string;
   name: string;
   date: string;
   beoName: string;
@@ -357,7 +421,6 @@ export async function createScreeningSession(input: {
 }): Promise<void> {
   const { error } = await requireSupabase().from('screening_sessions').insert({
     organization_id: input.organizationId,
-    created_by: input.userId,
     name: input.name,
     beo_name: input.beoName,
     head_master_name: input.headMasterName,
@@ -418,6 +481,14 @@ export async function createSchool(input: {
   throwIfError(error);
 }
 
+export async function assignSchoolOwner(schoolId: string, ownerId: string): Promise<void> {
+  const { error } = await requireSupabase().rpc('assign_school_owner', {
+    target_school_id: schoolId,
+    target_owner_id: ownerId,
+  });
+  throwIfError(error);
+}
+
 export async function assignEnumerator(input: {
   organizationId: string;
   sessionId: string;
@@ -436,22 +507,47 @@ export async function createStudentScreening(input: {
   userId: string;
   sessionId: string;
   student: StudentRecord;
-}, options?: { idempotencyKey?: string }): Promise<void> {
+}, options?: { idempotencyKey?: string }): Promise<string> {
   if (isLocalTestSessionActive()) {
     const session = getLocalTestSessions().find((item) => item.id === input.sessionId);
-    if (!session || !session.enumerators.includes(input.userId)) {
+    const actor = getLocalTestUser();
+    if (
+      !session ||
+      input.userId !== actor.id ||
+      (actor.role !== 'organization_admin' && !session.enumerators.includes(actor.id))
+    ) {
       throw new Error('The local test session is not assigned to this enumerator.');
     }
-    saveLocalTestStudent({ ...input.student, id: input.student.id || crypto.randomUUID() }, input.userId);
-    return;
+    const savedStudents = getLocalTestStudents().filter((student) => student.sessionId === input.sessionId);
+    const maxSiNumber = savedStudents.reduce((max, student) => {
+      const number = Number(student.siNumber);
+      return Number.isInteger(number) ? Math.max(max, number) : max;
+    }, 0);
+    const siNumber = input.student.siNumber || String(maxSiNumber + 1);
+    saveLocalTestStudent({
+      ...input.student,
+      ownerId: session.ownerId,
+      siNumber,
+      id: input.student.id || crypto.randomUUID(),
+    }, actor.id, session.ownerId);
+    return siNumber;
   }
 
-  const student = input.student;
   const client = requireSupabase();
+  const idempotencyKey = options?.idempotencyKey ?? crypto.randomUUID();
+  const { data: siNumber, error: numberError } = await client.rpc('reserve_student_si_number', {
+    target_session_id: input.sessionId,
+    target_idempotency_key: idempotencyKey,
+  });
+  throwIfError(numberError);
+  if (!siNumber) {
+    throw new Error('A student SI number could not be assigned for this session.');
+  }
+
+  const student = { ...input.student, siNumber };
   const { error, status } = await client.from('student_screenings').insert({
-    ...(options?.idempotencyKey ? { id: options.idempotencyKey } : {}),
+    id: idempotencyKey,
     organization_id: input.organizationId,
-    created_by: input.userId,
     session_id: input.sessionId,
     district_id: student.districtId,
     taluk_id: student.talukId,
@@ -478,11 +574,8 @@ export async function createStudentScreening(input: {
   if (error) {
     if (error.code === '23505') {
       await verifyDuplicateStudentSubmission(
-        { ...input, ...(options?.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}) },
+        { ...input, student, idempotencyKey },
         async (organizationId, id) => {
-          if (!options?.idempotencyKey) {
-            return null;
-          }
           const { data, error: lookupError, status: lookupStatus } = await client
             .from('student_screenings')
             .select('id, organization_id, created_by, session_id, district_id, taluk_id, school_id, si_number, student_name, class_name, section, sex, date_of_birth, age, height_cm, weight_kg, bmi, skeletal_deformity, skeletal_observation, skin_thickness_mm, mid_arm_circumference_cm, additional_remarks, screening_date, status')
@@ -501,6 +594,7 @@ export async function createStudentScreening(input: {
             .from('student_screenings')
             .select('id, organization_id, created_by, session_id, district_id, taluk_id, school_id, si_number, student_name, class_name, section, sex, date_of_birth, age, height_cm, weight_kg, bmi, skeletal_deformity, skeletal_observation, skin_thickness_mm, mid_arm_circumference_cm, additional_remarks, screening_date, status')
             .eq('organization_id', organizationId)
+            .eq('session_id', input.sessionId)
             .eq('si_number', siNumber)
             .maybeSingle();
           if (lookupError) {
@@ -511,13 +605,14 @@ export async function createStudentScreening(input: {
           return data;
         },
       );
-      return;
+      return siNumber;
     }
 
     const submissionError = new Error(error.message);
     Object.assign(submissionError, { code: error.code, status });
     throw submissionError;
   }
+  return siNumber;
 }
 
 export async function getDashboardSummary(): Promise<{

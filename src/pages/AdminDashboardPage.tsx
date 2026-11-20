@@ -3,6 +3,7 @@ import { ArrowRight, ClipboardList, MapPinned, School, Users } from 'lucide-reac
 import { Link } from 'react-router-dom';
 import { useRemoteData } from '../hooks/useRemoteData';
 import { getDashboardSummary, getDistricts, getOrganizationUsers } from '../lib/dataService';
+import { getRoleLabel } from '../lib/permissions';
 
 export function AdminDashboardPage() {
   const load = useCallback(async () => {
@@ -33,7 +34,7 @@ export function AdminDashboardPage() {
     </div>
     <section className="card">
       <div className="mb-4 flex items-center justify-between gap-3"><div><h3 className="text-lg font-semibold">Staff directory</h3><p className="mt-1 text-sm text-slate-500">People provisioned in this organization.</p></div><Link to="/users" className="text-sm font-semibold text-cyan-700 hover:underline">Manage staff</Link></div>
-      {data.users.length === 0 ? <p className="text-sm text-slate-500">No staff profiles are available.</p> : <div className="table-shell"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>District</th></tr></thead><tbody>{data.users.map((member) => <tr key={member.id}><td>{member.name}</td><td>{member.email}</td><td className="capitalize">{member.role === 'district_manager' ? 'District supervisor' : member.role.replace('_', ' ')}</td><td>{data.districts.find((district) => district.id === member.districtId)?.name ?? (member.districtId ? 'Assigned district' : 'Organization-wide')}</td></tr>)}</tbody></table></div>}
+      {data.users.length === 0 ? <p className="text-sm text-slate-500">No staff profiles are available.</p> : <div className="table-shell"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>District</th></tr></thead><tbody>{data.users.map((member) => <tr key={member.id}><td>{member.name}</td><td>{member.email}</td><td>{getRoleLabel(member.role)}</td><td>{data.districts.find((district) => district.id === member.districtId)?.name ?? (member.districtId ? 'Assigned district' : 'Organization-wide')}</td></tr>)}</tbody></table></div>}
     </section>
     <section className="grid gap-3 sm:grid-cols-2">
       {[['Set up districts and schools', '/districts', 'Configure geography and school records.'], ['Review assignments and audit history', '/assignments', 'Track field work and administrative changes.']].map(([label, href, description]) => <Link key={href} to={href} className="card flex items-center justify-between gap-3 hover:border-cyan-300"><div><h3 className="font-semibold">{label}</h3><p className="mt-1 text-sm text-slate-500">{description}</p></div><ArrowRight size={18} className="shrink-0 text-cyan-700" /></Link>)}
