@@ -2,6 +2,7 @@ export type Role = 'organization_admin' | 'district_manager' | 'enumerator';
 export type InvitationRole = 'district_manager' | 'enumerator';
 export type InvitationStatus = 'provisioning' | 'pending' | 'accepted' | 'cancelled' | 'expired' | 'failed';
 export type InvitationAuthStatus = 'not_attempted' | 'in_flight' | 'accepted_by_auth' | 'rejected_by_auth' | 'unknown';
+export type StudentScreeningStatus = 'Pending' | 'Complete';
 
 export type AppUser = {
   id: string;
@@ -56,26 +57,29 @@ export type ScreeningSession = {
 export type StudentRecord = {
   id: string;
   sessionId: string;
-  siNumber: string;
-  studentName: string;
-  className: string;
-  section: string;
-  sex: 'Male' | 'Female' | 'Other' | 'Prefer not to specify';
-  dateOfBirth: string;
-  age: number;
-  heightCm: number;
-  weightKg: number;
-  bmi: number;
-  skeletalDeformity: 'No' | 'Yes' | 'Suspected' | 'Not assessed';
-  skeletalObservation: string;
+  siNumber: string | null;
+  studentName: string | null;
+  className: string | null;
+  section: string | null;
+  sex: 'Male' | 'Female' | 'Other' | 'Prefer not to specify' | null;
+  dateOfBirth: string | null;
+  age: number | null;
+  heightCm: number | null;
+  weightKg: number | null;
+  bmi: number | null;
+  skeletalDeformity: 'No' | 'Yes' | 'Suspected' | 'Not assessed' | null;
+  skeletalObservation: string | null;
   skinThicknessMm: number | null;
   midArmCircumferenceCm: number | null;
-  additionalRemarks: string;
+  additionalRemarks: string | null;
   districtId: string;
   talukId: string;
   schoolId: string;
+  districtName: string;
+  talukName: string;
+  schoolName: string;
   screeningDate: string;
-  status: 'Pending' | 'Reviewed' | 'Synced';
+  status: StudentScreeningStatus;
 };
 
 export type AuditLog = {

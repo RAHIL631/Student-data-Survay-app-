@@ -111,8 +111,8 @@ export function DashboardPage() {
                     <td>{student.siNumber}</td>
                     <td>{student.studentName}</td>
                     <td>{student.className}</td>
-                    <td>{student.schoolId}</td>
-                    <td>{student.status}</td>
+                    <td>{student.schoolName}</td>
+                    <td><span className={`badge ${student.status === 'Complete' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}>{student.status}</span></td>
                   </tr>
                 ))}
               </tbody>

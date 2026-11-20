@@ -9,6 +9,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { ScreeningSessionsPage } from './pages/ScreeningSessionsPage';
 import { StudentRegistrationPage } from './pages/StudentRegistrationPage';
 import { StudentsPage } from './pages/StudentsPage';
+import { StudentDetailsPage } from './pages/StudentDetailsPage';
 import { SchoolsPage } from './pages/SchoolsPage';
 import { DistrictsTaluksPage } from './pages/DistrictsTaluksPage';
 import { EnumeratorsPage } from './pages/EnumeratorsPage';
@@ -41,7 +42,11 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
     return <Navigate to="/login" replace />;
   }
 
-  const routeKey = pathname === '/' ? 'dashboard' : pathname.slice(1) as RouteKey;
+  const routeKey = pathname.startsWith('/students/')
+    ? 'students'
+    : pathname === '/'
+      ? 'dashboard'
+      : pathname.slice(1) as RouteKey;
   if (!canAccessRoute(user.role, routeKey)) {
     return <Navigate to="/dashboard" replace />;
   }
@@ -62,6 +67,7 @@ export default function App() {
           <Route path="/screening-sessions" element={<ScreeningSessionsPage />} />
           <Route path="/student-registration" element={<StudentRegistrationPage />} />
           <Route path="/students" element={<StudentsPage />} />
+          <Route path="/students/:studentId" element={<StudentDetailsPage />} />
           <Route path="/schools" element={<SchoolsPage />} />
           <Route path="/districts" element={<DistrictsTaluksPage />} />
           <Route path="/enumerators" element={<EnumeratorsPage />} />

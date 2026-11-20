@@ -1,5 +1,6 @@
 import type { AppUser, AuditLog, District, School, ScreeningSession, StudentRecord, Taluk } from '../types';
 import { getLocalDateString } from './date';
+import { calculateStudentScreeningStatus } from './screeningStatus.js';
 import { isSupabaseConfigured } from './supabase';
 
 const SESSION_KEY = 'student-health-hub.local-test-session';
@@ -130,7 +131,28 @@ export function getLocalTestSessions(): ScreeningSession[] {
 }
 
 export function getLocalTestStudents(): StudentRecord[] {
-  return readData().students;
+  return readData().students.map((student) => ({
+    ...student,
+    siNumber: student.siNumber ?? null,
+    studentName: student.studentName ?? null,
+    className: student.className ?? null,
+    section: student.section ?? null,
+    sex: student.sex ?? null,
+    dateOfBirth: student.dateOfBirth ?? null,
+    age: student.age ?? null,
+    heightCm: student.heightCm ?? null,
+    weightKg: student.weightKg ?? null,
+    bmi: student.bmi ?? null,
+    skeletalDeformity: student.skeletalDeformity ?? null,
+    skeletalObservation: student.skeletalObservation ?? null,
+    skinThicknessMm: student.skinThicknessMm ?? null,
+    midArmCircumferenceCm: student.midArmCircumferenceCm ?? null,
+    additionalRemarks: student.additionalRemarks ?? null,
+    districtName: student.districtName ?? district.name,
+    talukName: student.talukName ?? taluk.name,
+    schoolName: student.schoolName ?? school.name,
+    status: calculateStudentScreeningStatus(student),
+  }));
 }
 
 export function getLocalTestAuditLogs(): AuditLog[] {
@@ -139,15 +161,42 @@ export function getLocalTestAuditLogs(): AuditLog[] {
 
 export function saveLocalTestStudent(student: StudentRecord, actorId: string): void {
   const data = readData();
-  if (data.students.some((existing) => existing.siNumber === student.siNumber)) {
+  if (student.siNumber && data.students.some((existing) => existing.siNumber === student.siNumber)) {
     throw new Error('A student with this SI Number is already saved in local test data.');
   }
 
-  data.students = [student, ...data.students];
+  data.students = [{ ...student, schoolName: school.name, districtName: district.name, talukName: taluk.name }, ...data.students];
   data.auditLogs = [{
     id: crypto.randomUUID(),
     actor: localUser.name,
     action: 'insert',
+    recordType: 'student_screenings',
+    timestamp: new Date().toISOString(),
+    metadata: JSON.stringify({ studentId: student.id, actorId }),
+  }, ...data.auditLogs];
+  saveData(data);
+}
+
+export function updateLocalTestStudent(student: StudentRecord, actorId: string): void {
+  const data = readData();
+  const existingIndex = data.students.findIndex((existing) => existing.id === student.id);
+  if (existingIndex < 0) {
+    throw new Error('The local test screening record could not be found.');
+  }
+  if (student.siNumber && data.students.some((existing) => existing.id !== student.id && existing.siNumber === student.siNumber)) {
+    throw new Error('A student with this SI Number is already saved in local test data.');
+  }
+
+  data.students[existingIndex] = {
+    ...student,
+    schoolName: school.name,
+    districtName: district.name,
+    talukName: taluk.name,
+  };
+  data.auditLogs = [{
+    id: crypto.randomUUID(),
+    actor: localUser.name,
+    action: 'update',
     recordType: 'student_screenings',
     timestamp: new Date().toISOString(),
     metadata: JSON.stringify({ studentId: student.id, actorId }),

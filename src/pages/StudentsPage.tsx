@@ -12,7 +12,7 @@ export function StudentsPage() {
   const query = search.trim().toLowerCase();
   const filteredStudents = (students ?? [])
     .filter((student) => !sessionId || student.sessionId === sessionId)
-    .filter((student) => `${student.studentName} ${student.siNumber}`.toLowerCase().includes(query));
+    .filter((student) => `${student.studentName ?? ''} ${student.siNumber ?? ''}`.toLowerCase().includes(query));
 
   return (
     <div className="space-y-6">
@@ -37,16 +37,18 @@ export function StudentsPage() {
       {!error && filteredStudents.length > 0 && (
         <div className="table-shell">
           <table>
-            <thead><tr><th>SI Number</th><th>Name</th><th>Class</th><th>Sex</th><th>Status</th><th>Age</th></tr></thead>
+            <thead><tr><th>SI Number</th><th>Name</th><th>Class</th><th>Sex</th><th>Status</th><th>Age</th><th>School</th><th>Action</th></tr></thead>
             <tbody>
               {filteredStudents.map((student) => (
                 <tr key={student.id}>
-                  <td>{student.siNumber}</td>
-                  <td>{student.studentName}</td>
-                  <td>{student.className}</td>
-                  <td>{student.sex}</td>
-                  <td><span className="badge bg-cyan-100 text-cyan-700">{student.status}</span></td>
-                  <td>{student.age}</td>
+                  <td>{student.siNumber ?? '—'}</td>
+                  <td>{student.studentName ?? '—'}</td>
+                  <td>{student.className ?? '—'}</td>
+                  <td>{student.sex ?? '—'}</td>
+                  <td><span className={`badge ${student.status === 'Complete' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}>{student.status}</span></td>
+                  <td>{student.age ?? '—'}</td>
+                  <td>{student.schoolName}</td>
+                  <td><button onClick={() => navigate(`/students/${encodeURIComponent(student.id)}`)} className="font-medium text-cyan-700 hover:underline">View details</button></td>
                 </tr>
               ))}
             </tbody>

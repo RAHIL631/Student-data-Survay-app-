@@ -16,12 +16,12 @@ export function getHomeRoute(role: Role): RouteKey {
 }
 
 export function calculateAge(dateOfBirth: string, screeningDate: string): number {
-  const birth = new Date(dateOfBirth);
-  const screening = new Date(screeningDate);
-  const age = screening.getFullYear() - birth.getFullYear();
-  const monthAdjustment = screening.getMonth() - birth.getMonth();
+  const birth = new Date(`${dateOfBirth}T00:00:00.000Z`);
+  const screening = new Date(`${screeningDate}T00:00:00.000Z`);
+  const age = screening.getUTCFullYear() - birth.getUTCFullYear();
+  const monthAdjustment = screening.getUTCMonth() - birth.getUTCMonth();
 
-  if (monthAdjustment < 0 || (monthAdjustment === 0 && screening.getDate() < birth.getDate())) {
+  if (monthAdjustment < 0 || (monthAdjustment === 0 && screening.getUTCDate() < birth.getUTCDate())) {
     return age - 1;
   }
 
@@ -43,7 +43,7 @@ export function exportCsv(filename: string, rows: Record<string, string | number
   }
 
   const csv = serializeCsv(rows);
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;

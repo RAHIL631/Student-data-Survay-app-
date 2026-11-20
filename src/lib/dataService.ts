@@ -2,6 +2,7 @@ import type { PostgrestError } from '@supabase/supabase-js';
 import type { AppUser, AuditLog, District, InvitationRole, School, ScreeningSession, StudentRecord, Taluk } from '../types';
 import type { Database } from './database.types';
 import { requireSupabase } from './supabase';
+import { calculateStudentScreeningStatus } from './screeningStatus.js';
 import {
   getLocalTestAuditLogs,
   getLocalTestDashboardSummary,
@@ -14,6 +15,7 @@ import {
   getLocalTestUser,
   isLocalTestSessionActive,
   saveLocalTestStudent,
+  updateLocalTestStudent,
 } from './localTestMode';
 
 function throwIfError(error: PostgrestError | null): void {
@@ -224,36 +226,86 @@ export async function getStudentRecords(): Promise<StudentRecord[]> {
     return getLocalTestStudents();
   }
 
-  const { data, error } = await requireSupabase()
-    .from('student_screenings')
-    .select('id, session_id, si_number, student_name, class_name, section, sex, date_of_birth, age, height_cm, weight_kg, bmi, skeletal_deformity, skeletal_observation, skin_thickness_mm, mid_arm_circumference_cm, additional_remarks, district_id, taluk_id, school_id, screening_date, status')
-    .order('screening_date', { ascending: false });
+  const client = requireSupabase();
+  const pageSize = 500;
+  const students: StudentRecord[] = [];
 
-  throwIfError(error);
-  return (data ?? []).map((row) => ({
-    id: row.id,
-    sessionId: row.session_id ?? '',
-    siNumber: row.si_number,
-    studentName: row.student_name,
-    className: row.class_name ?? '',
-    section: row.section ?? '',
-    sex: row.sex ?? 'Prefer not to specify',
-    dateOfBirth: row.date_of_birth ?? '',
-    age: row.age ?? 0,
-    heightCm: Number(row.height_cm ?? 0),
-    weightKg: Number(row.weight_kg ?? 0),
-    bmi: Number(row.bmi ?? 0),
-    skeletalDeformity: row.skeletal_deformity ?? 'Not assessed',
-    skeletalObservation: row.skeletal_observation ?? '',
-    skinThicknessMm: row.skin_thickness_mm === null ? null : Number(row.skin_thickness_mm),
-    midArmCircumferenceCm: row.mid_arm_circumference_cm === null ? null : Number(row.mid_arm_circumference_cm),
-    additionalRemarks: row.additional_remarks ?? '',
-    districtId: row.district_id ?? '',
-    talukId: row.taluk_id ?? '',
-    schoolId: row.school_id ?? '',
-    screeningDate: row.screening_date,
-    status: row.status,
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await client.from('student_screenings')
+      .select('id, session_id, si_number, student_name, class_name, section, sex, date_of_birth, age, height_cm, weight_kg, bmi, skeletal_deformity, skeletal_observation, skin_thickness_mm, mid_arm_circumference_cm, additional_remarks, district_id, taluk_id, school_id, screening_date, status')
+      .order('screening_date', { ascending: false })
+      .order('id', { ascending: false })
+      .range(offset, offset + pageSize - 1);
+
+    throwIfError(error);
+    const page = data ?? [];
+    students.push(...page.map((row) => ({
+      id: row.id,
+      sessionId: row.session_id,
+      siNumber: row.si_number,
+      studentName: row.student_name,
+      className: row.class_name,
+      section: row.section,
+      sex: row.sex,
+      dateOfBirth: row.date_of_birth,
+      age: row.age,
+      heightCm: row.height_cm,
+      weightKg: row.weight_kg,
+      bmi: row.bmi,
+      skeletalDeformity: row.skeletal_deformity,
+      skeletalObservation: row.skeletal_observation,
+      skinThicknessMm: row.skin_thickness_mm,
+      midArmCircumferenceCm: row.mid_arm_circumference_cm,
+      additionalRemarks: row.additional_remarks,
+      districtId: row.district_id,
+      talukId: row.taluk_id,
+      schoolId: row.school_id,
+      districtName: '',
+      talukName: '',
+      schoolName: '',
+      screeningDate: row.screening_date,
+      status: row.status,
+    })));
+
+    if (page.length < pageSize) {
+      break;
+    }
+  }
+
+  const districtIds = [...new Set(students.map((student) => student.districtId))];
+  const talukIds = [...new Set(students.map((student) => student.talukId))];
+  const schoolIds = [...new Set(students.map((student) => student.schoolId))];
+  const districtNames = new Map<string, string>();
+  const talukNames = new Map<string, string>();
+  const schoolNames = new Map<string, string>();
+
+  for (let offset = 0; offset < districtIds.length; offset += pageSize) {
+    const { data, error } = await client.from('districts').select('id, name').in('id', districtIds.slice(offset, offset + pageSize));
+    throwIfError(error);
+    for (const district of data ?? []) districtNames.set(district.id, district.name);
+  }
+  for (let offset = 0; offset < talukIds.length; offset += pageSize) {
+    const { data, error } = await client.from('taluks').select('id, name').in('id', talukIds.slice(offset, offset + pageSize));
+    throwIfError(error);
+    for (const taluk of data ?? []) talukNames.set(taluk.id, taluk.name);
+  }
+  for (let offset = 0; offset < schoolIds.length; offset += pageSize) {
+    const { data, error } = await client.from('schools').select('id, name').in('id', schoolIds.slice(offset, offset + pageSize));
+    throwIfError(error);
+    for (const school of data ?? []) schoolNames.set(school.id, school.name);
+  }
+
+  return students.map((student) => ({
+    ...student,
+    districtName: districtNames.get(student.districtId) ?? '',
+    talukName: talukNames.get(student.talukId) ?? '',
+    schoolName: schoolNames.get(student.schoolId) ?? '',
   }));
+}
+
+export async function getStudentRecord(studentId: string): Promise<StudentRecord | null> {
+  const students = await getStudentRecords();
+  return students.find((student) => student.id === studentId) ?? null;
 }
 
 export async function getEnumerators(): Promise<AppUser[]> {
@@ -516,7 +568,11 @@ export async function createStudentScreening(input: {
     if (!session || !session.enumerators.includes(input.userId)) {
       throw new Error('The local test session is not assigned to this enumerator.');
     }
-    saveLocalTestStudent({ ...input.student, id: input.student.id || crypto.randomUUID() }, input.userId);
+    const student = { ...input.student, id: input.student.id || crypto.randomUUID() };
+    saveLocalTestStudent({
+      ...student,
+      status: calculateStudentScreeningStatus(student),
+    }, input.userId);
     return;
   }
 
@@ -544,10 +600,51 @@ export async function createStudentScreening(input: {
     mid_arm_circumference_cm: student.midArmCircumferenceCm,
     additional_remarks: student.additionalRemarks,
     screening_date: student.screeningDate,
-    status: 'Pending',
   });
 
   throwIfError(error);
+}
+
+export async function updateStudentScreening(input: {
+  studentId: string;
+  userId: string;
+  student: StudentRecord;
+}): Promise<void> {
+  if (isLocalTestSessionActive()) {
+    updateLocalTestStudent({
+      ...input.student,
+      status: calculateStudentScreeningStatus(input.student),
+    }, input.userId);
+    return;
+  }
+
+  const { data, error } = await requireSupabase()
+    .from('student_screenings')
+    .update({
+      si_number: input.student.siNumber,
+      student_name: input.student.studentName,
+      class_name: input.student.className,
+      section: input.student.section,
+      sex: input.student.sex,
+      date_of_birth: input.student.dateOfBirth,
+      age: input.student.age,
+      height_cm: input.student.heightCm,
+      weight_kg: input.student.weightKg,
+      bmi: input.student.bmi,
+      skeletal_deformity: input.student.skeletalDeformity,
+      skeletal_observation: input.student.skeletalObservation,
+      skin_thickness_mm: input.student.skinThicknessMm,
+      mid_arm_circumference_cm: input.student.midArmCircumferenceCm,
+      additional_remarks: input.student.additionalRemarks,
+    })
+    .eq('id', input.studentId)
+    .select('id')
+    .maybeSingle();
+
+  throwIfError(error);
+  if (!data) {
+    throw new Error('The screening record could not be updated in your authorized scope.');
+  }
 }
 
 export async function getDashboardSummary(): Promise<{
