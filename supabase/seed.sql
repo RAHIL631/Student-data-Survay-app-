@@ -4,3 +4,5 @@
   full_name TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending'
 );
+
+ALTER TABLE public.students ENABLE ROW LEVEL SECURITY;
