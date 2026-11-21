@@ -1,11 +1,7 @@
 # Offline synchronization design
 
-This project is designed around an offline-first flow for enumerators working in schools with unreliable connectivity. Records are stored locally and synchronized when connectivity is restored. The workflow includes:
+**Implementation status on `integration`: not implemented.** This document describes a proposed offline-first workflow; it is not evidence that the current application queues or synchronizes submissions.
 
-- local queueing of student submissions
-- idempotency keys for safe replays
-- retry backoff policy
-- conflict visibility for server-side changes
-- secure session expiry and local cache cleanup policies
+The current `integration` branch writes student screenings through `src/lib/dataService.ts` directly to Supabase. Local test mode stores its own test records in browser storage, but production submissions do not use an offline queue. The offline-sync implementation on `chore/project-structure` is not compatible with the current schema: it depends on profile `is_active`, owner-scoped columns, SI reservation tables, and a reservation RPC that are absent from the `integration` migrations and hosted project.
 
-The application does not silently overwrite newer server state. When the Supabase environment is configured, the sync layer can use authenticated API calls to push queued records and reconcile conflicts.
+Do not advertise offline submission or merge that implementation until its schema dependencies, RLS policies, idempotency behavior, privacy controls, and migrations have been redesigned and tested against the current schema.

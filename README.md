@@ -6,7 +6,7 @@ Student Health Hub is a React + TypeScript web application backed by Supabase Au
 
 1. Create a Supabase project.
 2. Copy `.env.example` to `.env` and set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from the project's API settings. These are the project URL and public anon/publishable key; never put a service-role key in the browser or commit it.
-3. Apply the SQL files in `supabase/migrations/` in numeric order using the Supabase SQL Editor (or the Supabase CLI).
+3. Apply every SQL file in `supabase/migrations/` in ascending filename order. This includes the numbered migrations and the timestamped migrations. Use the Supabase CLI or SQL Editor; do not reset a live project or apply `seed.sql` to production.
 4. Create an organization administrator in Supabase Authentication, then create the initial organization and profile from the SQL Editor:
 
 ```sql
