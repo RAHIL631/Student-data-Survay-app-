@@ -88,6 +88,8 @@ export function StudentRegistrationPage() {
   const [isSaving, setIsSaving] = useState(false);
   const saveAnother = useRef(false);
   const initializedStudentId = useRef<string | null>(null);
+  const pendingStudentId = useRef<string | null>(null);
+  const pendingSiReservation = useRef<{ siNumber: string; key: string } | null>(null);
 
   const today = getLocalDateString();
   const heightCm = form.heightCm === '' ? null : Number(form.heightCm);
@@ -161,6 +163,9 @@ export function StudentRegistrationPage() {
   }, [form.sessionId, isEditing, sessions]);
 
   const handleChange = (key: keyof typeof initialForm, value: string) => {
+    if (key === 'siNumber' && pendingSiReservation.current?.siNumber !== value.trim()) {
+      pendingSiReservation.current = null;
+    }
     setForm((current) => ({ ...current, [key]: value }));
     setSubmitted(false);
     setError('');
@@ -241,10 +246,17 @@ export function StudentRegistrationPage() {
 
     const savedAge = typeof age === 'number' && Number.isFinite(age) ? age : null;
     const savedBmi = bmi !== null && Number.isFinite(bmi) && bmi > 0 ? bmi : null;
+    const normalizedSiNumber = form.siNumber.trim() || null;
+    const submissionId = existingStudent?.id ?? pendingStudentId.current ?? crypto.randomUUID();
+    if (!existingStudent) pendingStudentId.current = submissionId;
+    if (normalizedSiNumber && (!existingStudent || normalizedSiNumber !== existingStudent.siNumber)
+      && pendingSiReservation.current?.siNumber !== normalizedSiNumber) {
+      pendingSiReservation.current = { siNumber: normalizedSiNumber, key: crypto.randomUUID() };
+    }
     const record: StudentRecord = {
-      id: existingStudent?.id ?? '',
+      id: submissionId,
       sessionId,
-      siNumber: form.siNumber.trim() || null,
+      siNumber: normalizedSiNumber,
       studentName: form.studentName.trim() || null,
       className: form.className.trim() || null,
       section: form.section.trim() || null,
@@ -272,7 +284,12 @@ export function StudentRegistrationPage() {
     setIsSaving(true);
     try {
       if (isEditing && existingStudent) {
-        await updateStudentScreening({ studentId: existingStudent.id, userId: user.id, student: record });
+        await updateStudentScreening({
+          studentId: existingStudent.id,
+          userId: user.id,
+          student: record,
+          siReservationKey: pendingSiReservation.current?.key,
+        });
         navigate(`/students/${encodeURIComponent(existingStudent.id)}`);
       } else {
         await createStudentScreening({
@@ -280,7 +297,10 @@ export function StudentRegistrationPage() {
           userId: user.id,
           sessionId,
           student: record,
+          siReservationKey: pendingSiReservation.current?.key,
         });
+        pendingStudentId.current = null;
+        pendingSiReservation.current = null;
       }
       if (!isEditing && saveAnother.current && selectedSchool && selectedSession) {
         setForm({

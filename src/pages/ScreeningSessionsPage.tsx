@@ -37,7 +37,6 @@ export function ScreeningSessionsPage() {
     try {
       await createScreeningSession({
         organizationId: user.organizationId,
-        userId: user.id,
         name: form.name.trim(),
         date: form.date,
         beoName: form.beoName.trim(),

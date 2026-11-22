@@ -32,6 +32,7 @@ type ProfileRow = {
   full_name: string;
   role: 'organization_admin' | 'district_manager' | 'enumerator';
   district_id: string | null;
+  is_active: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -66,6 +67,8 @@ type SchoolRow = {
   status: 'active' | 'inactive';
   created_at: string;
   updated_at: string;
+  created_by: string | null;
+  owner_id: string | null;
 };
 
 type ScreeningSessionRow = {
@@ -83,6 +86,7 @@ type ScreeningSessionRow = {
   created_by: string;
   created_at: string;
   updated_at: string;
+  owner_id: string | null;
 };
 
 type StudentScreeningRow = {
@@ -112,6 +116,8 @@ type StudentScreeningRow = {
   created_by: string;
   created_at: string;
   updated_at: string;
+  owner_id: string | null;
+  si_reservation_id: string | null;
 };
 
 type AuditLogRow = {
@@ -160,6 +166,19 @@ type UserInvitationRow = {
   cancelled_at: string | null;
   expired_at: string | null;
   failure_code: 'auth_rejected' | 'auth_unavailable' | 'unexpected_failure' | null;
+};
+
+type StudentSiReservationRow = {
+  id: string;
+  organization_id: string;
+  session_id: string;
+  requested_by: string;
+  target_student_id: string | null;
+  si_number: string;
+  idempotency_key: string;
+  expires_at: string;
+  consumed_at: string | null;
+  created_at: string;
 };
 
 type OrganizationInsert = { id?: string; name: string; created_at?: string; updated_at?: string };
@@ -217,7 +236,6 @@ type SessionInsert = {
   screening_faculty_name: string;
   screening_date: string;
   status?: ScreeningSessionRow['status'];
-  created_by: string;
   created_at?: string;
   updated_at?: string;
 };
@@ -245,7 +263,7 @@ type StudentInsert = {
   additional_remarks?: string | null;
   screening_date?: string;
   status?: StudentScreeningRow['status'];
-  created_by: string;
+  si_reservation_id?: string | null;
   created_at?: string;
   updated_at?: string;
 };
@@ -327,6 +345,7 @@ type TalukRelationships = [
   Relationship<'taluks_organization_id_fkey', ['organization_id'], 'organizations', ['id']>,
 ];
 type SchoolRelationships = [
+  Relationship<'schools_created_by_fkey', ['created_by'], 'profiles', ['id']>,
   Relationship<'schools_district_id_fkey', ['district_id'], 'districts', ['id']>,
   Relationship<
     'schools_organization_district_fkey',
@@ -341,11 +360,13 @@ type SchoolRelationships = [
     'taluks',
     ['organization_id', 'id', 'district_id']
   >,
+  Relationship<'schools_owner_id_fkey', ['owner_id'], 'profiles', ['id']>,
   Relationship<'schools_taluk_id_fkey', ['taluk_id'], 'taluks', ['id']>,
 ];
 type SessionRelationships = [
   Relationship<'screening_sessions_created_by_fkey', ['created_by'], 'profiles', ['id']>,
   Relationship<'screening_sessions_district_id_fkey', ['district_id'], 'districts', ['id']>,
+  Relationship<'screening_sessions_owner_id_fkey', ['owner_id'], 'profiles', ['id']>,
   Relationship<
     'screening_sessions_organization_id_created_by_fkey',
     ['organization_id', 'created_by'],
@@ -403,6 +424,7 @@ type StudentScreeningRelationships = [
     'profiles',
     ['organization_id', 'id']
   >,
+  Relationship<'student_screenings_owner_id_fkey', ['owner_id'], 'profiles', ['id']>,
   Relationship<
     'student_screenings_org_session_fkey',
     ['organization_id', 'session_id', 'district_id', 'taluk_id', 'school_id'],
@@ -418,6 +440,21 @@ type StudentScreeningRelationships = [
   Relationship<'student_screenings_school_id_fkey', ['school_id'], 'schools', ['id']>,
   Relationship<'student_screenings_session_id_fkey', ['session_id'], 'screening_sessions', ['id']>,
   Relationship<'student_screenings_taluk_id_fkey', ['taluk_id'], 'taluks', ['id']>,
+];
+type StudentSiReservationRelationships = [
+  Relationship<'student_si_reservations_organization_id_fkey', ['organization_id'], 'organizations', ['id']>,
+  Relationship<
+    'student_si_reservations_requester_fk',
+    ['organization_id', 'requested_by'],
+    'profiles',
+    ['organization_id', 'id']
+  >,
+  Relationship<
+    'student_si_reservations_session_fk',
+    ['organization_id', 'session_id'],
+    'screening_sessions',
+    ['organization_id', 'id']
+  >,
 ];
 type AuditLogRelationships = [
   Relationship<'audit_logs_actor_id_fkey', ['actor_id'], 'profiles', ['id']>,
@@ -439,6 +476,12 @@ export type Database = {
         Partial<UserInvitationInsert>,
         UserInvitationRelationships
       >;
+      student_si_reservations: Table<
+        StudentSiReservationRow,
+        Partial<StudentSiReservationRow>,
+        Partial<StudentSiReservationRow>,
+        StudentSiReservationRelationships
+      >;
       student_screenings: Table<
         StudentScreeningRow,
         StudentInsert,
@@ -449,6 +492,7 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+      current_profile_is_active: { Args: Record<PropertyKey, never>; Returns: boolean };
       current_profile_district_id: { Args: Record<PropertyKey, never>; Returns: string };
       current_profile_organization_id: { Args: Record<PropertyKey, never>; Returns: string };
       current_profile_role: { Args: Record<PropertyKey, never>; Returns: string };
@@ -482,6 +526,27 @@ export type Database = {
       accept_user_invitation: {
         Args: { target_invitation_id: string };
         Returns: boolean;
+      };
+      set_profile_active: {
+        Args: { target_profile_id: string; target_is_active: boolean };
+        Returns: boolean;
+      };
+      transfer_record_ownership: {
+        Args: { target_record_type: string; target_record_id: string; target_owner_id: string };
+        Returns: boolean;
+      };
+      reserve_student_si_number: {
+        Args: {
+          target_session_id: string;
+          requested_si_number: string;
+          request_idempotency_key: string;
+          requested_student_id?: string | null;
+        };
+        Returns: string;
+      };
+      cleanup_expired_student_si_reservations: {
+        Args: Record<PropertyKey, never>;
+        Returns: number;
       };
     };
     Enums: Record<string, never>;
