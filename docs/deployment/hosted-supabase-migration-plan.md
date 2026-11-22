@@ -39,9 +39,10 @@ No migration reset schemas, truncated/deleted application data, changed `auth.us
 - Preflight assignment-scope violations: 0. SI collision preflight: no student screening rows existed.
 - Postflight: `profiles.is_active`, owner fields, reservation table and reservation ID are present; activation, ownership-transfer, and SI-reservation RPCs exist; reservation RLS is enabled; `anon` and `authenticated` cannot directly read the reservation ledger; assignment-scope violations remain 0.
 - Auth users (2), organizations (1), and profiles (1) remained unchanged.
+- A clearly marked temporary QA district was saved and retrieved in a separate hosted query, then removed with its test-only audit events; final district and test-audit counts were both zero.
 - Local `supabase test db`: 9 files, 236 assertions passed. Unit tests: 27 passed. TypeScript validation and production build passed.
 - Backup restore validation succeeded in a fresh disposable PostgreSQL 17 database. Backup SQL is excluded from Git.
-- The public production URL returned HTTP 200 and its current JavaScript bundle targets the intended Supabase host and queries active profiles. Vercel authentication was unavailable (`vercel whoami` reported logged out), so the Vercel project, Production Branch, and a new deployment are not verified.
+- The public production URL returned HTTP 200 and its current JavaScript bundle targets the intended Supabase host and queries active profiles; the old missing-column error string is absent. It still serves its previous bundle after the Git push. Vercel authentication was unavailable (`vercel whoami` reported logged out), so the Vercel project, Production Branch, and a new deployment are not verified. A real browser login and authenticated frontend student/session save were not verified.
 
 ## Preconditions before hosted execution
 
@@ -131,6 +132,6 @@ The migrations are additive or tighten permissions. Existing rows are not delete
 ## Current unverified items
 
 - Auth redirect allow-list and `invite-user` production deployment/runtime configuration have not been independently verified.
-- A previous read-only production inspection found the Vercel bundle targeted the hosted Supabase project but still requested the obsolete `profiles.is_active` field. A fresh live bundle request was blocked by this environment's network policy, so the current deployment and Production Branch are unverified. The local production build targets the hosted project and contains no localhost endpoint or service-role marker.
-- Production Vercel login/dashboard is not validated by local tests. After approved release, verify the browser's Supabase endpoint, profile query, and role-scoped dashboard using approved test accounts.
-- No hosted write, migration, Auth configuration, Edge Function deployment, data transfer, Vercel deployment, commit, or push occurred during this preparation.
+- The Vercel project ID, Git repository binding, Production Branch, environment settings, and new deployment status remain unverified because the CLI is logged out and the browser control host is unavailable. The integration commits have been pushed to `friend/integration`; the public deployment still serves the previous bundle.
+- Auth redirect allow-list, `invite-user` production deployment/runtime configuration, and reservation cleanup scheduling remain unverified.
+- Do not transfer local test records. No hosted Auth users were created or changed.
