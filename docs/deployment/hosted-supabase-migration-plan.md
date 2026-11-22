@@ -2,15 +2,15 @@
 
 ## Current state and boundary
 
-The remote Supabase project was inspected read-only. It has 11 applied migrations: `001`–`009`, `20261120175954`, and `20261121100000`. The seven migrations listed below are local-only and have not been applied to hosted Supabase. This work has made no hosted SQL, Auth, Edge Function, or Vercel changes.
+The intended hosted project is `qghesdscscclbfevbypb` at `https://qghesdscscclbfevbypb.supabase.co`. On 2026-11-22, its 11-migration baseline was backed up, verified by restoring into an isolated PostgreSQL 17 instance, and extended with the seven migrations listed below. The Vercel project/production branch could not be verified from this session; the public deployment URL remains the existing WhatsApp link.
 
-The remote public schema matched the 11-migration baseline: no `profiles.is_active`, creator/owner columns on schools/sessions/screenings, or SI reservation table. Remote aggregate counts observed were 1 organization, 1 profile, and zero districts, taluks, schools, screening sessions, assignments, screening records, audit events, and invitations. Do not include the account identity in public reports. Local aggregate counts observed were 1 organization, 2 profiles, 1 school, 1 session, and 5 student screenings; there were no assignment organization/scope mismatches. Local data has not been reset or deleted. Do not transfer local testing records without a separate explicit data-transfer approval.
+Before migration, the hosted schema lacked `profiles.is_active`, creator/owner columns on schools/sessions/screenings, and the SI reservation table. Aggregate counts observed were 2 Auth users, 1 organization, 1 profile, and zero districts, taluks, schools, screening sessions, assignments, screening records, audit events, and invitations. Do not include account identities in public reports. Local data has not been reset or deleted, and no local records were transferred.
 
-The hosted snapshot is read-only and must be refreshed immediately before any deployment. Verify live migration history and schema again because database state can change.
+The pre-migration backup files are stored under the ignored `backups/` directory. Schema, data, and role-setting dumps were created; checksums were recorded locally, and the schema/data were restored into a disposable PostgreSQL 17 database. The restored database contained the same aggregate counts for Auth users, organizations, and profiles as the hosted project.
 
 ## Ordered forward-only package
 
-Apply these six files, in this exact order, after confirming the hosted history is still the 11-entry baseline:
+These seven files were applied to the hosted project in this exact order after confirming the 11-entry baseline and a clean assignment preflight:
 
 1. `20261122000000_server_controlled_created_by.sql`
    - Server-derive creator IDs on session/screening inserts; prevent client edits; limit client INSERT columns.
@@ -31,7 +31,17 @@ Apply these six files, in this exact order, after confirming the hosted history 
 7. `20261128000000_fix_si_reservation_parameter_ambiguity.sql`
    - Recreates the SI reservation RPC with an unambiguous argument name. Grants are revoked/reapplied narrowly; the reservation table and existing records are unchanged.
 
-No migration resets schemas, truncates/deletes application data, changes `auth.users`, or weakens RLS. A SQL migration is atomic per file, but the full seven-file sequence is not one transaction. If a migration fails, stop and inspect the reported file and resulting migration history before proceeding. Do not replay or edit any migration already applied; corrections must be new forward migrations.
+No migration reset schemas, truncated/deleted application data, changed `auth.users`, or weakened RLS. Each SQL migration applied successfully. A SQL migration is atomic per file, but the full seven-file sequence is not one transaction. Do not replay or edit any migration already applied; corrections must be new forward migrations.
+
+## Execution record (2026-11-22)
+
+- `supabase db push --remote=qghesdscscclbfevbypb --skip-vault --yes` applied all seven migrations; `supabase migration list` confirms all seven versions are recorded.
+- Preflight assignment-scope violations: 0. SI collision preflight: no student screening rows existed.
+- Postflight: `profiles.is_active`, owner fields, reservation table and reservation ID are present; activation, ownership-transfer, and SI-reservation RPCs exist; reservation RLS is enabled; `anon` and `authenticated` cannot directly read the reservation ledger; assignment-scope violations remain 0.
+- Auth users (2), organizations (1), and profiles (1) remained unchanged.
+- Local `supabase test db`: 9 files, 236 assertions passed. Unit tests: 27 passed. TypeScript validation and production build passed.
+- Backup restore validation succeeded in a fresh disposable PostgreSQL 17 database. Backup SQL is excluded from Git.
+- The public production URL returned HTTP 200 and its current JavaScript bundle targets the intended Supabase host and queries active profiles. Vercel authentication was unavailable (`vercel whoami` reported logged out), so the Vercel project, Production Branch, and a new deployment are not verified.
 
 ## Preconditions before hosted execution
 
