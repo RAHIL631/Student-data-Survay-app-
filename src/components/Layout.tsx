@@ -4,6 +4,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { canAccessRoute } from '../lib/permissions';
 import { isLocalTestSessionActive } from '../lib/localTestMode';
+import { getRoleLabel } from '../lib/permissions';
 import type { RouteKey } from '../types';
 
 const navItems = [
@@ -17,13 +18,14 @@ const navItems = [
   { to: '/assignments', label: 'Assignments' },
   { to: '/reports', label: 'Reports' },
   { to: '/audit-logs', label: 'Audit Logs' },
-  { to: '/settings', label: 'Admin Portal' },
+  { to: '/users', label: 'Staff & Access' },
+  { to: '/settings', label: 'Settings' },
   { to: '/profile', label: 'Profile' },
 ];
 
 export function AppLayout() {
   const { user, logout } = useAuth();
-  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [sidebarVisible, setSidebarVisible] = useState(() => window.matchMedia('(min-width: 768px)').matches);
   const [logoutError, setLogoutError] = useState('');
   const isLocalTest = isLocalTestSessionActive();
 
@@ -39,8 +41,9 @@ export function AppLayout() {
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
+      {sidebarVisible && <button type="button" aria-label="Close navigation menu" onClick={() => setSidebarVisible(false)} className="fixed inset-0 z-20 bg-slate-950/50 md:hidden" />}
       {sidebarVisible && (
-      <aside id="app-navigation" className="fixed inset-y-0 left-0 z-10 flex w-72 flex-col border-r border-slate-200 bg-slate-950 text-slate-100">
+      <aside id="app-navigation" className="fixed inset-y-0 left-0 z-30 flex w-72 max-w-[85vw] flex-col border-r border-slate-200 bg-slate-950 text-slate-100">
         <div className="flex items-center gap-3 border-b border-slate-800 px-6 py-5">
           <div className="rounded-xl bg-cyan-500/20 p-2 text-cyan-300"><ShieldCheck size={18} /></div>
           <div>
@@ -59,6 +62,9 @@ export function AppLayout() {
                   isActive ? 'bg-cyan-500/15 text-cyan-200' : 'text-slate-300 hover:bg-slate-800'
                 }`
               }
+              onClick={() => {
+                if (!window.matchMedia('(min-width: 768px)').matches) setSidebarVisible(false);
+              }}
             >
               <span>{item.label}</span>
               <ChevronRight size={14} className="opacity-80" />
@@ -73,7 +79,7 @@ export function AppLayout() {
             </div>
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-semibold text-white">{user?.name ?? 'User'}</div>
-              <div className="truncate text-xs capitalize text-slate-300">{user?.role.replace('_', ' ')}</div>
+              <div className="truncate text-xs text-slate-300">{user ? getRoleLabel(user.role) : 'User'}</div>
             </div>
           </div>
           <button onClick={() => void handleLogout()} className="mt-3 w-full rounded-lg bg-slate-700 px-3 py-2 text-sm font-medium text-white hover:bg-slate-600">
@@ -84,9 +90,9 @@ export function AppLayout() {
       </aside>
       )}
 
-      <main className={`${sidebarVisible ? 'ml-72' : 'ml-0'} min-h-screen p-6 transition-[margin] duration-200 md:p-8`}>
-        <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-          <div className="mb-6 flex items-center justify-between gap-4 border-b border-slate-200 pb-4">
+      <main className={`${sidebarVisible ? 'md:ml-72' : 'ml-0'} min-h-screen min-w-0 p-3 pb-20 transition-[margin] duration-200 sm:p-5 md:pb-5 md:p-8`}>
+        <div className="min-h-[calc(100vh-1.5rem)] min-w-0 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 sm:p-6 md:min-h-[calc(100vh-4rem)]">
+          <div className="mb-5 flex items-center justify-between gap-3 border-b border-slate-200 pb-4 sm:mb-6 sm:gap-4">
             <div className="flex items-center gap-3">
               <button
                 type="button"
@@ -94,17 +100,17 @@ export function AppLayout() {
                 aria-label={sidebarVisible ? 'Hide navigation sidebar' : 'Show navigation sidebar'}
                 aria-expanded={sidebarVisible}
                 aria-controls="app-navigation"
-                className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-600"
+                className="shrink-0 rounded-lg p-2 text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-600"
               >
                 <Menu size={22} />
               </button>
-              <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-700">Operations overview</p>
-              <h1 className="mt-1 text-2xl font-bold text-slate-900">Student Health Hub</h1>
+              <div className="min-w-0">
+              <p className="hidden text-xs font-semibold uppercase tracking-[0.2em] text-cyan-700 sm:block">Operations overview</p>
+              <h1 className="truncate text-lg font-bold text-slate-900 sm:mt-1 sm:text-2xl">Student Health Hub</h1>
               </div>
             </div>
-            <div className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
-              {user?.role ? user.role.replace('_', ' ') : 'Authenticated'}
+            <div className="max-w-[42%] truncate rounded-full bg-emerald-100 px-2 py-1 text-right text-[10px] font-semibold text-emerald-700 sm:px-3 sm:text-xs">
+              {user ? getRoleLabel(user.role) : 'Authenticated'}
             </div>
           </div>
 

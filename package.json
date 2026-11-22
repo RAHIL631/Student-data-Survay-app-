@@ -11,6 +11,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "node --test",
+  "test:si-concurrency": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-si-reservation-concurrency.ps1",
     "validate": "tsc --noEmit"
   },
   "dependencies": {

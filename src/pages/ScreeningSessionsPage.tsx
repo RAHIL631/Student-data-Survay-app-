@@ -37,7 +37,6 @@ export function ScreeningSessionsPage() {
     try {
       await createScreeningSession({
         organizationId: user.organizationId,
-        userId: user.id,
         name: form.name.trim(),
         date: form.date,
         beoName: form.beoName.trim(),
@@ -58,7 +57,7 @@ export function ScreeningSessionsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-2xl font-bold text-slate-900">Screening Sessions</h2>
         {canCreate && <button onClick={() => { setShowForm((visible) => !visible); setSaveError(''); }} className="inline-flex items-center gap-2 rounded-xl bg-cyan-600 px-4 py-2 font-medium text-white hover:bg-cyan-500"><Plus size={16} /> New session</button>}
       </div>

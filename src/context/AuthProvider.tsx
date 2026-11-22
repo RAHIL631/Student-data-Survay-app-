@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AuthContext } from './AuthContext';
-import { getProfile } from '../lib/dataService';
+import { getProfile, InactiveProfileError } from '../lib/dataService';
 import { supabase } from '../lib/supabase';
 import {
   endLocalTestSession,
@@ -53,6 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
       return;
     }
+    const authClient = supabase;
 
     let active = true;
     const restoreProfile = async (userId: string | null) => {
@@ -84,6 +85,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       } catch (error) {
         console.error('Unable to load the authenticated account profile.', error);
+        if (error instanceof InactiveProfileError) {
+          await authClient.auth.signOut({ scope: 'local' });
+        }
         if (active && requestId === profileLoadId.current) {
           setUser(null);
           setAuthError(error instanceof Error ? error.message : 'Unable to load your account profile.');
@@ -92,7 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = authClient.auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
         setPasswordRecoveryActive(true);
         profileLoadId.current += 1;
@@ -115,7 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       void restoreProfile(session?.user.id ?? null);
     });
 
-    void supabase.auth.getSession().then(({ data, error }) => {
+    void authClient.auth.getSession().then(({ data, error }) => {
       if (error) {
         throw error;
       }
@@ -150,7 +154,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           throw new Error(error.message);
         }
 
-        const profile = await getProfile(data.user.id);
+        let profile;
+        try {
+          profile = await getProfile(data.user.id);
+        } catch (profileError) {
+          if (profileError instanceof InactiveProfileError) {
+            await supabase.auth.signOut({ scope: 'local' });
+          }
+          throw profileError;
+        }
         setUser(profile);
         setAuthError(null);
         return profile;

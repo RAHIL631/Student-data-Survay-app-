@@ -1,7 +1,7 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
-SELECT plan(106);
+SELECT plan(108);
 
 INSERT INTO auth.users (
   id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -66,26 +66,6 @@ VALUES
   ('10000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000006'),
   ('10000000-0000-0000-0000-000000000002', '50000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000008');
 
-INSERT INTO public.screening_sessions (
-  id, organization_id, district_id, taluk_id, school_id, name, beo_name,
-  head_master_name, screening_faculty_name, screening_date, created_by
-)
-VALUES (
-  '50000000-0000-0000-0000-000000000005',
-  '10000000-0000-0000-0000-000000000001',
-  '20000000-0000-0000-0000-000000000002',
-  '30000000-0000-0000-0000-000000000002',
-  '40000000-0000-0000-0000-000000000002',
-  'Cross-district assignment fixture', 'BEO', 'Head', 'Faculty',
-  CURRENT_DATE, '00000000-0000-0000-0000-000000000001'
-);
-INSERT INTO public.session_assignments (organization_id, session_id, enumerator_id)
-VALUES (
-  '10000000-0000-0000-0000-000000000001',
-  '50000000-0000-0000-0000-000000000005',
-  '00000000-0000-0000-0000-000000000004'
-);
-
 INSERT INTO public.student_screenings (
   id, organization_id, session_id, district_id, taluk_id, school_id, si_number,
   student_name, class_name, section, sex, date_of_birth, age, height_cm,
@@ -99,9 +79,9 @@ VALUES
 SELECT throws_ok(
   $$INSERT INTO public.session_assignments (organization_id, session_id, enumerator_id)
     VALUES ('10000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000006')$$,
-  '23503',
+  '42501',
   NULL,
-  'composite foreign keys reject an assignment that mixes organizations'
+  'assignment scope trigger rejects an assignment that mixes organizations'
 );
 
 INSERT INTO public.audit_logs (id, organization_id, district_id, action, record_type)
@@ -110,9 +90,6 @@ VALUES
   ('70000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000002', 'update', 'policy_fixture'),
   ('70000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001', NULL, 'update', 'policy_fixture'),
   ('70000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000003', 'update', 'policy_fixture');
-
-INSERT INTO public.session_assignments (id, organization_id, session_id, enumerator_id)
-VALUES ('90000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000005');
 
 INSERT INTO public.student_screenings (
   id, organization_id, session_id, district_id, taluk_id, school_id, si_number,
@@ -401,17 +378,11 @@ SELECT is(
   'district manager cannot delete assignments from another district'
 );
 SET LOCAL ROLE authenticated;
-DELETE FROM public.session_assignments
-WHERE id = '90000000-0000-0000-0000-000000000001';
-SELECT is(
-  (SELECT count(*)::integer FROM public.session_assignments WHERE id = '90000000-0000-0000-0000-000000000001'),
-  1,
-  'district manager cannot delete a same-district session assignment for another-district enumerator'
-);
-SELECT is(
-  (SELECT count(*)::integer FROM public.audit_logs WHERE record_id = '90000000-0000-0000-0000-000000000001' AND record_type = 'session_assignments'),
-  0,
-  'district manager cannot read cross-district assignment audit event'
+SELECT throws_ok(
+  $$INSERT INTO public.session_assignments (organization_id, session_id, enumerator_id)
+    VALUES ('10000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000005')$$,
+  '42501', NULL,
+  'district manager cannot create an assignment across district boundaries'
 );
 RESET ROLE;
 SET LOCAL ROLE authenticated;
@@ -442,6 +413,9 @@ SELECT is(
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
 SELECT set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000001","role":"authenticated"}', true);
+SELECT is(auth.uid(), '00000000-0000-0000-0000-000000000001'::UUID, 'organization administrator JWT is active for the API test');
+SELECT is(public.current_profile_is_active(), TRUE, 'organization administrator profile is active');
+SELECT is(public.current_profile_organization_id(), '10000000-0000-0000-0000-000000000001'::UUID, 'organization administrator profile resolves the expected organization');
 SELECT is(
   (SELECT count(*)::integer FROM public.districts),
   2,
@@ -454,7 +428,7 @@ SELECT is(
 );
 SELECT is(
   (SELECT count(*)::integer FROM public.screening_sessions),
-  3,
+  2,
   'organization admin can read all sessions in their organization'
 );
 SELECT is(
@@ -488,12 +462,13 @@ SELECT is(
   'organization admin can read cascade assignment audit with unknown ownership'
 );
 SELECT ok(
-  (SELECT district_id IS NULL FROM public.audit_logs
-   WHERE record_type = 'session_assignments'
-     AND record_id = '90000000-0000-0000-0000-000000000001'
-     AND action = 'insert'
-   LIMIT 1),
-  'cross-district assignment insert audit event remains admin-only'
+  EXISTS (
+    SELECT 1 FROM public.audit_logs l
+    WHERE l.record_type = 'session_assignments'
+      AND l.action = 'insert'
+      AND l.district_id = '20000000-0000-0000-0000-000000000001'
+  ),
+  'organization administrator can read correctly scoped assignment audit events'
 );
 SELECT is(
   (SELECT count(*)::integer FROM public.districts WHERE id = '20000000-0000-0000-0000-000000000003'),
@@ -548,15 +523,14 @@ SELECT is(
 SELECT lives_ok(
   $$INSERT INTO public.screening_sessions (
       organization_id, district_id, taluk_id, school_id, name, beo_name,
-      head_master_name, screening_faculty_name, screening_date, created_by
+      head_master_name, screening_faculty_name, screening_date
     )
     VALUES (
       '10000000-0000-0000-0000-000000000001',
       '20000000-0000-0000-0000-000000000001',
       '30000000-0000-0000-0000-000000000001',
       '40000000-0000-0000-0000-000000000001',
-      'Admin-created session', 'BEO', 'Head', 'Faculty', CURRENT_DATE,
-      '00000000-0000-0000-0000-000000000001'
+      'Admin-created session', 'BEO', 'Head', 'Faculty', CURRENT_DATE
     )$$,
   'organization admin can create a session in their organization'
 );
@@ -564,17 +538,16 @@ SELECT lives_ok(
   $$INSERT INTO public.student_screenings (
       organization_id, session_id, district_id, taluk_id, school_id, si_number,
       student_name, class_name, section, sex, date_of_birth, age, height_cm,
-      weight_kg, bmi, created_by
+      weight_kg, bmi
     )
     VALUES (
       '10000000-0000-0000-0000-000000000001',
-      '50000000-0000-0000-0000-000000000001',
-      '20000000-0000-0000-0000-000000000001',
-      '30000000-0000-0000-0000-000000000001',
-      '40000000-0000-0000-0000-000000000001',
-      'RLS-ADMIN-INSERT', 'Admin-created screening', '5', 'A', 'Other',
-      '2015-01-01', 10, 130, 30, 17.75,
-      '00000000-0000-0000-0000-000000000001'
+      '50000000-0000-0000-0000-000000000002',
+      '20000000-0000-0000-0000-000000000002',
+      '30000000-0000-0000-0000-000000000002',
+      '40000000-0000-0000-0000-000000000002',
+      NULL, 'Admin-created screening', '5', 'A', 'Other',
+      '2015-01-01', 10, 130, 30, 17.75
     )$$,
   'organization admin can create a screening in their organization'
 );
@@ -584,22 +557,27 @@ SELECT lives_ok(
   'organization admin can create an assignment in their organization'
 );
 SELECT lives_ok(
-  $$DELETE FROM public.session_assignments WHERE id = '90000000-0000-0000-0000-000000000001'$$,
-  'organization admin can delete a cross-district assignment in their organization'
+  $$DELETE FROM public.session_assignments
+    WHERE session_id = '50000000-0000-0000-0000-000000000001'
+      AND enumerator_id = '00000000-0000-0000-0000-000000000004'$$,
+  'organization admin can delete an assignment in their organization'
 );
 SELECT is(
-  (SELECT count(*)::integer FROM public.session_assignments WHERE id = '90000000-0000-0000-0000-000000000001'),
+  (SELECT count(*)::integer FROM public.session_assignments
+   WHERE session_id = '50000000-0000-0000-0000-000000000001'
+     AND enumerator_id = '00000000-0000-0000-0000-000000000004'),
   0,
-  'organization admin deletion removes the cross-district assignment'
+  'organization admin deletion removes the selected assignment'
 );
 SELECT ok(
-  (SELECT district_id IS NULL FROM public.audit_logs
-   WHERE record_type = 'session_assignments'
-     AND record_id = '90000000-0000-0000-0000-000000000001'
-     AND action = 'delete'
-   LIMIT 1),
-  'cross-district assignment delete audit event remains admin-only'
+  EXISTS (SELECT 1 FROM public.audit_logs
+          WHERE record_type = 'session_assignments'
+            AND action = 'delete'
+            AND district_id = '20000000-0000-0000-0000-000000000001'),
+  'assignment delete audit event records its district'
 );
+INSERT INTO public.session_assignments (organization_id, session_id, enumerator_id)
+VALUES ('10000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000004');
 SELECT throws_ok(
   $$INSERT INTO public.session_assignments (organization_id, session_id, enumerator_id)
     VALUES ('10000000-0000-0000-0000-000000000002', '50000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000008')$$,
@@ -674,33 +652,33 @@ SELECT is(
 );
 SELECT is(
   (SELECT count(*)::integer FROM public.districts),
-  2,
-  'enumerator can read their district and districts of assigned sessions'
+  1,
+  'enumerator can read only the district of assigned sessions'
 );
 SELECT is(
   (SELECT count(*)::integer FROM public.taluks),
-  2,
-  'enumerator can read taluks in their district and assigned sessions'
+  1,
+  'enumerator can read taluks in their district'
 );
 SELECT is(
   (SELECT count(*)::integer FROM public.schools),
-  2,
-  'enumerator can read schools in their district and assigned sessions'
+  1,
+  'enumerator can read schools in their district'
 );
 SELECT is(
   (SELECT count(*)::integer FROM public.districts WHERE id = '20000000-0000-0000-0000-000000000002'),
-  1,
-  'enumerator can read a different-district location for an assigned session'
+  0,
+  'enumerator cannot read a different-district location'
 );
 SELECT is(
   (SELECT count(*)::integer FROM public.taluks WHERE id = '30000000-0000-0000-0000-000000000002'),
-  1,
-  'enumerator can read an assigned session taluk'
+  0,
+  'enumerator cannot read a different-district taluk'
 );
 SELECT is(
   (SELECT count(*)::integer FROM public.schools WHERE id = '40000000-0000-0000-0000-000000000002'),
-  1,
-  'enumerator can read an assigned session school'
+  0,
+  'enumerator cannot read a different-district school'
 );
 SELECT is(
   (SELECT count(*)::integer FROM public.districts WHERE id = '20000000-0000-0000-0000-000000000003'),
@@ -734,7 +712,7 @@ SELECT is(
 );
 SELECT is(
   (SELECT count(*)::integer FROM public.session_assignments WHERE enumerator_id = '00000000-0000-0000-0000-000000000004'),
-  2,
+  1,
   'enumerator can read their own assignment'
 );
 SELECT is(
@@ -766,7 +744,7 @@ SELECT lives_ok(
   $$INSERT INTO public.student_screenings (
       organization_id, session_id, district_id, taluk_id, school_id, si_number,
       student_name, class_name, section, sex, date_of_birth, age, height_cm,
-      weight_kg, bmi, created_by
+      weight_kg, bmi
     )
     VALUES (
       '10000000-0000-0000-0000-000000000001',
@@ -774,9 +752,8 @@ SELECT lives_ok(
       '20000000-0000-0000-0000-000000000001',
       '30000000-0000-0000-0000-000000000001',
       '40000000-0000-0000-0000-000000000001',
-      'RLS-ENUM-INSERT', 'Enumerator-created screening', '5', 'A', 'Other',
-      '2015-01-01', 10, 130, 30, 17.75,
-      '00000000-0000-0000-0000-000000000004'
+      NULL, 'Enumerator-created screening', '5', 'A', 'Other',
+      '2015-01-01', 10, 130, 30, 17.75
     )$$,
   'enumerator can create a screening in an assigned session'
 );
@@ -784,7 +761,7 @@ SELECT throws_ok(
   $$INSERT INTO public.student_screenings (
       organization_id, session_id, district_id, taluk_id, school_id, si_number,
       student_name, class_name, section, sex, date_of_birth, age, height_cm,
-      weight_kg, bmi, created_by
+      weight_kg, bmi
     )
     VALUES (
       '10000000-0000-0000-0000-000000000001',
@@ -793,8 +770,7 @@ SELECT throws_ok(
       '30000000-0000-0000-0000-000000000002',
       '40000000-0000-0000-0000-000000000002',
       'RLS-ENUM-UNASSIGNED', 'Unassigned screening', '5', 'A', 'Other',
-      '2015-01-01', 10, 130, 30, 17.75,
-      '00000000-0000-0000-0000-000000000004'
+      '2015-01-01', 10, 130, 30, 17.75
     )$$,
   '42501',
   NULL,
@@ -804,7 +780,7 @@ SELECT throws_ok(
   $$INSERT INTO public.student_screenings (
       organization_id, session_id, district_id, taluk_id, school_id, si_number,
       student_name, class_name, section, sex, date_of_birth, age, height_cm,
-      weight_kg, bmi, created_by
+      weight_kg, bmi
     )
     VALUES (
       '10000000-0000-0000-0000-000000000002',
@@ -813,8 +789,7 @@ SELECT throws_ok(
       '30000000-0000-0000-0000-000000000003',
       '40000000-0000-0000-0000-000000000003',
       'RLS-ENUM-CROSS-ORG', 'Cross-organization screening', '5', 'A', 'Other',
-      '2015-01-01', 10, 130, 30, 17.75,
-      '00000000-0000-0000-0000-000000000008'
+      '2015-01-01', 10, 130, 30, 17.75
     )$$,
   '42501',
   NULL,
@@ -823,15 +798,14 @@ SELECT throws_ok(
 SELECT throws_ok(
   $$INSERT INTO public.screening_sessions (
       organization_id, district_id, taluk_id, school_id, name, beo_name,
-      head_master_name, screening_faculty_name, screening_date, created_by
+      head_master_name, screening_faculty_name, screening_date
     )
     VALUES (
       '10000000-0000-0000-0000-000000000001',
       '20000000-0000-0000-0000-000000000001',
       '30000000-0000-0000-0000-000000000001',
       '40000000-0000-0000-0000-000000000001',
-      'Enumerator-created session', 'BEO', 'Head', 'Faculty', CURRENT_DATE,
-      '00000000-0000-0000-0000-000000000004'
+      'Enumerator-created session', 'BEO', 'Head', 'Faculty', CURRENT_DATE
     )$$,
   '42501',
   NULL,
