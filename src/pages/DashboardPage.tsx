@@ -4,8 +4,10 @@ import { AppWindow, Filter, ShieldCheck, TrendingUp, Users } from 'lucide-react'
 import { getDashboardSummary, getDistricts, getScreeningSessions, getStudentRecords } from '../lib/dataService';
 import { formatNumber } from '../lib/utils';
 import { useRemoteData } from '../hooks/useRemoteData';
+import { useAuth } from '../context/AuthContext';
 
 export function DashboardPage() {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const loadDashboard = useCallback(async () => {
     const [summary, districts, sessions, students] = await Promise.all([
@@ -43,10 +45,10 @@ export function DashboardPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-cyan-50 p-5">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">Ready to screen students?</h2>
-          <p className="mt-1 text-sm text-slate-600">Open a session you manage or have been assigned to and start entering screenings.</p>
+          <h2 className="text-lg font-semibold text-slate-900">{user?.role === 'district_manager' ? 'Screening overview' : 'Ready to screen students?'}</h2>
+          <p className="mt-1 text-sm text-slate-600">{user?.role === 'district_manager' ? 'Review records for faculty members with viewer access.' : 'Open a session you manage or have been assigned to and start entering screenings.'}</p>
         </div>
-        <button onClick={() => navigate('/screening-sessions')} className="min-h-11 rounded-xl bg-cyan-600 px-5 py-2.5 font-semibold text-white hover:bg-cyan-500">Start a survey</button>
+        <button onClick={() => navigate(user?.role === 'district_manager' ? '/reports' : '/screening-sessions')} className="min-h-11 rounded-xl bg-cyan-600 px-5 py-2.5 font-semibold text-white hover:bg-cyan-500">{user?.role === 'district_manager' ? 'View reports' : 'Start a survey'}</button>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

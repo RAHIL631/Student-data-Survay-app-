@@ -33,7 +33,7 @@ export function InvitationManagement() {
   const [message, setMessage] = useState('');
   const [saveError, setSaveError] = useState('');
   const isOrganizationAdmin = user?.role === 'organization_admin';
-  const canInvite = isOrganizationAdmin || user?.role === 'district_manager';
+  const canInvite = isOrganizationAdmin;
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -134,8 +134,8 @@ export function InvitationManagement() {
               }}
               className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5"
             >
-              {isOrganizationAdmin && <option value="district_manager">District manager</option>}
-              <option value="enumerator">Enumerator</option>
+              {isOrganizationAdmin && <option value="district_manager">Viewer</option>}
+              <option value="enumerator">Screening faculty</option>
             </select>
           </label>
           {isOrganizationAdmin ? (
@@ -196,11 +196,11 @@ export function InvitationManagement() {
               {invitations.map((invitation) => {
                 const canCancel = invitation.status === 'provisioning'
                   || invitation.status === 'pending';
-                const roleAllowed = isOrganizationAdmin || invitation.role === 'enumerator';
+                const roleAllowed = isOrganizationAdmin;
                 return (
                   <tr key={invitation.id}>
                     <td>{invitation.email}</td>
-                    <td className="capitalize">{invitation.role.replace('_', ' ')}</td>
+                    <td>{invitation.role === 'district_manager' ? 'Viewer' : 'Screening faculty'}</td>
                     <td>{describeInvitation(invitation.status, invitation.auth_status)}</td>
                     <td>{new Date(invitation.created_at).toLocaleString()}</td>
                     <td>

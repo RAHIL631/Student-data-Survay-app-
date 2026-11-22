@@ -168,6 +168,14 @@ type UserInvitationRow = {
   failure_code: 'auth_rejected' | 'auth_unavailable' | 'unexpected_failure' | null;
 };
 
+type OwnerDataGrantRow = {
+  organization_id: string;
+  viewer_id: string;
+  owner_id: string;
+  created_by: string;
+  created_at: string;
+};
+
 type StudentSiReservationRow = {
   id: string;
   organization_id: string;
@@ -476,6 +484,16 @@ export type Database = {
         Partial<UserInvitationInsert>,
         UserInvitationRelationships
       >;
+      owner_data_grants: Table<
+        OwnerDataGrantRow,
+        Pick<OwnerDataGrantRow, 'organization_id' | 'viewer_id' | 'owner_id' | 'created_by'>,
+        Partial<Pick<OwnerDataGrantRow, 'organization_id' | 'viewer_id' | 'owner_id' | 'created_by'>>,
+        [
+          Relationship<'owner_data_grants_viewer_fk', ['organization_id', 'viewer_id'], 'profiles', ['organization_id', 'id']>,
+          Relationship<'owner_data_grants_owner_fk', ['organization_id', 'owner_id'], 'profiles', ['organization_id', 'id']>,
+          Relationship<'owner_data_grants_creator_fk', ['organization_id', 'created_by'], 'profiles', ['organization_id', 'id']>,
+        ]
+      >;
       student_si_reservations: Table<
         StudentSiReservationRow,
         Partial<StudentSiReservationRow>,
@@ -529,6 +547,11 @@ export type Database = {
       };
       set_profile_active: {
         Args: { target_profile_id: string; target_is_active: boolean };
+        Returns: boolean;
+      };
+      can_view_owner_data: { Args: { target_owner_id: string }; Returns: boolean };
+      set_owner_data_grant: {
+        Args: { target_viewer_id: string; target_owner_id: string; should_grant: boolean };
         Returns: boolean;
       };
       transfer_record_ownership: {

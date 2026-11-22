@@ -7,7 +7,7 @@ export { canAccessRoute };
 export function getRoleLabel(role: Role): string {
   switch (role) {
     case 'organization_admin': return 'Organization administrator';
-    case 'district_manager': return 'District manager';
+    case 'district_manager': return 'Viewer';
     case 'enumerator': return 'Enumerator';
   }
 }

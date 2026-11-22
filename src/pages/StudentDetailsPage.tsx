@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useRemoteData } from '../hooks/useRemoteData';
+import { useAuth } from '../context/AuthContext';
 import { getStudentRecord } from '../lib/dataService';
 
 function display(value: string | number | null): string {
@@ -8,6 +9,7 @@ function display(value: string | number | null): string {
 }
 
 export function StudentDetailsPage() {
+  const { user } = useAuth();
   const { studentId } = useParams();
   const navigate = useNavigate();
   const loadStudent = useCallback(
@@ -63,7 +65,7 @@ export function StudentDetailsPage() {
         </div>
         <div className="flex gap-2">
           <button onClick={() => navigate('/students')} className="rounded-xl border border-slate-300 px-4 py-2 font-medium text-slate-700 hover:bg-slate-50">Back to students</button>
-          <button onClick={() => navigate(`/student-registration?studentId=${encodeURIComponent(student.id)}`)} className="rounded-xl bg-cyan-600 px-4 py-2 font-medium text-white hover:bg-cyan-500">Edit screening</button>
+          {user?.role !== 'district_manager' && <button onClick={() => navigate(`/student-registration?studentId=${encodeURIComponent(student.id)}`)} className="rounded-xl bg-cyan-600 px-4 py-2 font-medium text-white hover:bg-cyan-500">Edit screening</button>}
         </div>
       </div>
 

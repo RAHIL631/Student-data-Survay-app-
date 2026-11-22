@@ -398,6 +398,27 @@ export async function getUserInvitations(): Promise<InvitationHistoryRecord[]> {
   return data ?? [];
 }
 
+export type OwnerDataGrant = { viewerId: string; ownerId: string };
+
+export async function getOwnerDataGrants(): Promise<OwnerDataGrant[]> {
+  const { data, error } = await requireSupabase()
+    .from('owner_data_grants')
+    .select('viewer_id, owner_id')
+    .order('viewer_id');
+  throwIfError(error);
+  return (data ?? []).map((row) => ({ viewerId: row.viewer_id, ownerId: row.owner_id }));
+}
+
+export async function setOwnerDataGrant(viewerId: string, ownerId: string, shouldGrant: boolean): Promise<void> {
+  const { data, error } = await requireSupabase().rpc('set_owner_data_grant', {
+    target_viewer_id: viewerId,
+    target_owner_id: ownerId,
+    should_grant: shouldGrant,
+  });
+  throwIfError(error);
+  if (data !== true) throw new Error('Viewer access could not be changed.');
+}
+
 export async function createUserInvitation(input: {
   email: string;
   role: InvitationRole;

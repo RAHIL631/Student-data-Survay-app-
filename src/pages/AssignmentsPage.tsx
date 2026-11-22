@@ -14,7 +14,7 @@ export function AssignmentsPage() {
   const [saveError, setSaveError] = useState('');
   const [saving, setSaving] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
-  const canManage = user?.role === 'organization_admin' || user?.role === 'district_manager';
+  const canManage = user?.role === 'organization_admin';
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

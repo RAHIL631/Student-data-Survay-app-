@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getStudentRecords } from '../lib/dataService';
+import { useAuth } from '../context/AuthContext';
 import { useRemoteData } from '../hooks/useRemoteData';
 
 export function StudentsPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const sessionId = searchParams.get('sessionId');
   const [search, setSearch] = useState('');
@@ -19,7 +21,7 @@ export function StudentsPage() {
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <h2 className="text-2xl font-bold text-slate-900">Students</h2>
-          <button onClick={() => navigate(sessionId ? `/student-registration?sessionId=${encodeURIComponent(sessionId)}` : '/screening-sessions')} className="rounded-xl bg-cyan-600 px-4 py-2 font-medium text-white hover:bg-cyan-500">{sessionId ? 'Add student' : 'Start screening'}</button>
+          {user?.role !== 'district_manager' && <button onClick={() => navigate(sessionId ? `/student-registration?sessionId=${encodeURIComponent(sessionId)}` : '/screening-sessions')} className="rounded-xl bg-cyan-600 px-4 py-2 font-medium text-white hover:bg-cyan-500">{sessionId ? 'Add student' : 'Start screening'}</button>}
         </div>
         <input
           aria-label="Search student or SI number"

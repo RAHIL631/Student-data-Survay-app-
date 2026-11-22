@@ -22,7 +22,7 @@ export function ScreeningSessionsPage() {
   });
   const [saveError, setSaveError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-  const canCreate = user?.role === 'organization_admin' || user?.role === 'district_manager';
+  const canCreate = user?.role === 'organization_admin';
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -113,7 +113,7 @@ export function ScreeningSessionsPage() {
                 <div>School: {session.schoolName}</div>
                 <div>Assigned enumerators: {session.enumerators.length}</div>
               </div>
-              {session.status === 'active' && <button onClick={() => navigate(`/student-registration?sessionId=${encodeURIComponent(session.id)}`)} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl bg-cyan-600 px-4 py-2 font-medium text-white hover:bg-cyan-500"><Play size={16} /> Start screening</button>}
+              {session.status === 'active' && user?.role !== 'district_manager' && <button onClick={() => navigate(`/student-registration?sessionId=${encodeURIComponent(session.id)}`)} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl bg-cyan-600 px-4 py-2 font-medium text-white hover:bg-cyan-500"><Play size={16} /> Start screening</button>}
             </div>
           ))}
         </div>

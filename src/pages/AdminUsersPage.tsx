@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { AccountActivationManagement } from '../components/AccountActivationManagement';
 import { InvitationManagement } from '../components/InvitationManagement';
+import { ViewerAccessManagement } from '../components/ViewerAccessManagement';
 
 export function AdminUsersPage() {
   return <div className="space-y-6">
@@ -9,6 +10,7 @@ export function AdminUsersPage() {
       <Link to="/dashboard" className="text-sm font-semibold text-cyan-700 hover:underline">Back to overview</Link>
     </div>
     <InvitationManagement />
+    <ViewerAccessManagement />
     <AccountActivationManagement />
   </div>;
 }

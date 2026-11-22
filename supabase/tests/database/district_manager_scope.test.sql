@@ -225,8 +225,8 @@ SELECT is(
 );
 SELECT is(
   (SELECT count(*)::integer FROM public.audit_logs WHERE id = '70000000-0000-0000-0000-000000000001'),
-  1,
-  'district manager can read own-district audit logs'
+  0,
+  'viewer cannot read audit logs'
 );
 SELECT is(
   (SELECT count(*)::integer FROM public.audit_logs WHERE id = '70000000-0000-0000-0000-000000000002'),
@@ -268,8 +268,8 @@ SELECT is(
 );
 SELECT is(
   (SELECT count(*)::integer FROM public.screening_sessions WHERE id = '50000000-0000-0000-0000-000000000001'),
-  1,
-  'district manager can read sessions in their district'
+  0,
+  'viewer cannot read sessions without an explicit owner grant'
 );
 SELECT is(
   (SELECT count(*)::integer FROM public.screening_sessions WHERE id = '50000000-0000-0000-0000-000000000002'),
@@ -278,8 +278,8 @@ SELECT is(
 );
 SELECT is(
   (SELECT count(*)::integer FROM public.student_screenings WHERE id = '60000000-0000-0000-0000-000000000001'),
-  1,
-  'district manager can read screenings in their district'
+  0,
+  'viewer cannot read screenings without an explicit owner grant'
 );
 SELECT is(
   (SELECT count(*)::integer FROM public.student_screenings WHERE id = '60000000-0000-0000-0000-000000000002'),
@@ -326,16 +326,16 @@ SET status = 'completed'
 WHERE id = '50000000-0000-0000-0000-000000000001';
 SELECT is(
   (SELECT status FROM public.screening_sessions WHERE id = '50000000-0000-0000-0000-000000000001'),
-  'completed',
-  'district manager can update a session in their district'
+  NULL,
+  'viewer cannot see or update an ungranted session'
 );
 UPDATE public.student_screenings
 SET additional_remarks = 'Reviewed by district manager'
 WHERE id = '60000000-0000-0000-0000-000000000001';
 SELECT is(
   (SELECT additional_remarks FROM public.student_screenings WHERE id = '60000000-0000-0000-0000-000000000001'),
-  'Reviewed by district manager',
-  'district manager can update a screening in their district'
+  NULL,
+  'viewer cannot see or update an ungranted screening'
 );
 SELECT throws_ok(
   $$INSERT INTO public.session_assignments (organization_id, session_id, enumerator_id)
@@ -351,13 +351,14 @@ SELECT throws_ok(
   NULL,
   'district manager cannot assign an enumerator from another district to their own district session'
 );
-SELECT lives_ok(
+SELECT throws_ok(
   $$INSERT INTO public.session_assignments (organization_id, session_id, enumerator_id)
     VALUES ('10000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000004')$$,
-  'district manager can assign an unassigned enumerator within their district'
+  '42501', NULL,
+  'viewer cannot assign enumerators'
 );
 SELECT ok(
-  EXISTS (
+  NOT EXISTS (
     SELECT 1 FROM public.audit_logs l
     JOIN public.session_assignments a ON a.id = l.record_id
     WHERE l.record_type = 'session_assignments'
@@ -366,7 +367,7 @@ SELECT ok(
       AND a.session_id = '50000000-0000-0000-0000-000000000001'
       AND a.enumerator_id = '00000000-0000-0000-0000-000000000004'
   ),
-  'district manager can read own-district assignment audit events'
+  'viewer cannot read assignment audit events'
 );
 DELETE FROM public.session_assignments
 WHERE session_id = '50000000-0000-0000-0000-000000000002';

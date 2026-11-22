@@ -32,11 +32,17 @@ test('dashboard loads current RLS-scoped summary, profiles, and districts with r
 test('staff page uses existing invitation and account activation workflows', () => {
   const page = readSource('src/pages/AdminUsersPage.tsx');
   const invitations = readSource('src/components/InvitationManagement.tsx');
+  const viewerAccess = readSource('src/components/ViewerAccessManagement.tsx');
   const activation = readSource('src/components/AccountActivationManagement.tsx');
   const service = readSource('src/lib/dataService.ts');
 
   assert.match(page, /<InvitationManagement \/>/);
   assert.match(page, /<AccountActivationManagement \/>/);
+  assert.match(page, /<ViewerAccessManagement \/>/);
+  assert.match(viewerAccess, /getOwnerDataGrants/);
+  assert.match(viewerAccess, /setOwnerDataGrant\(targetViewerId, targetOwnerId, shouldGrant\)/);
+  assert.match(viewerAccess, /profile\.role === 'district_manager'.*profile\.isActive/s);
+  assert.match(viewerAccess, /selectedViewer\?\.districtId === profile\.districtId/);
   assert.match(invitations, /user\?\.role === 'organization_admin'/);
   assert.match(invitations, /createUserInvitation\(/);
   assert.match(invitations, /cancelUserInvitation\(/);
@@ -46,10 +52,10 @@ test('staff page uses existing invitation and account activation workflows', () 
   assert.doesNotMatch(page + invitations, /getOwnerDataGrants|setOwnerDataGrant|admin-provision-user/);
 });
 
-test('admin dashboard is the organization administrator home without changing role names', () => {
+test('admin dashboard is the organization administrator home with Viewer role label', () => {
   const page = readSource('src/App.tsx');
   const permissions = readSource('src/lib/permissions.ts');
   assert.match(page, /user\?\.role === 'organization_admin' \? <AdminDashboardPage \/>/);
-  assert.match(permissions, /case 'district_manager': return 'District manager'/);
+  assert.match(permissions, /case 'district_manager': return 'Viewer'/);
   assert.match(permissions, /return 'dashboard'/);
 });

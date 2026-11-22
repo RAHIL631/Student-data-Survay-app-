@@ -143,14 +143,15 @@ SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000102', true);
 SELECT set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000102","role":"authenticated"}', true);
 
-SELECT is(
-  (SELECT result_code FROM public.request_user_invitation(
+SELECT throws_ok(
+  $$SELECT * FROM public.request_user_invitation(
     'enumerator-one@invite.test', 'enumerator',
     '20000000-0000-0000-0000-000000000101',
     '90000000-0000-0000-0000-000000000105'
-  )),
-  'created',
-  'district manager can invite enumerator in their own district'
+  )$$,
+  '42501',
+  NULL,
+  'viewer cannot create an enumerator invitation'
 );
 SELECT throws_ok(
   $$SELECT * FROM public.request_user_invitation(
@@ -176,8 +177,8 @@ SELECT throws_ok(
 SELECT is(
   (SELECT count(*)::INTEGER FROM public.user_invitations
    WHERE district_id = '20000000-0000-0000-0000-000000000101'),
-  3,
-  'district manager history includes own district invitations'
+  2,
+  'viewer history includes only invitations in their district'
 );
 SELECT is(
   (SELECT count(*)::INTEGER FROM public.user_invitations
@@ -187,15 +188,15 @@ SELECT is(
 );
 SELECT is(
   (SELECT count(*)::INTEGER FROM public.user_invitations),
-  3,
-  'district manager cannot read another organization invitations'
+  2,
+  'viewer cannot read other-district or other-organization invitations'
 );
 SELECT is(
   public.cancel_user_invitation(
     current_setting('test.admin_district_enumerator_id')::UUID
   ),
-  TRUE,
-  'district manager can cancel another authorized inviter enumerator invitation in their district'
+  FALSE,
+  'viewer cannot cancel an invitation'
 );
 SELECT set_config(
   'test.invitation_cancelled_id',
@@ -206,7 +207,7 @@ SELECT is(
   (SELECT auth_status FROM public.user_invitations
    WHERE id = current_setting('test.invitation_cancelled_id')::UUID),
   'not_attempted',
-  'cancellation before Auth request preserves not_attempted delivery state'
+  'denied viewer cancellation leaves invitation state unchanged'
 );
 SELECT is(
   public.cancel_user_invitation(current_setting('test.invite_other_district_id')::UUID),
