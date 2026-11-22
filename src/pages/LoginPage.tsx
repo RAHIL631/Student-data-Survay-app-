@@ -72,10 +72,10 @@ export function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-100 p-6">
+    <div className="flex min-h-screen items-center justify-center bg-slate-100 p-3 sm:p-6">
       <div className="w-full max-w-5xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-lg">
         <div className="grid md:grid-cols-2">
-          <div className="bg-slate-950 p-8 text-slate-50">
+          <div className="bg-slate-950 p-6 text-slate-50 sm:p-8">
             <div className="mb-6 flex items-center gap-3">
               <div className="rounded-xl bg-cyan-500/20 p-2 text-cyan-300"><ShieldCheck size={18} /></div>
               <div>
@@ -89,7 +89,7 @@ export function LoginPage() {
             </p>
           </div>
 
-          <form onSubmit={(event) => void handleSubmit(event)} className="space-y-5 p-8">
+          <form onSubmit={(event) => void handleSubmit(event)} className="space-y-5 p-6 sm:p-8">
             <div>
               <p className="text-xs uppercase tracking-[0.2em] text-cyan-700">Supabase sign in</p>
               <h3 className="mt-2 text-2xl font-bold text-slate-900">

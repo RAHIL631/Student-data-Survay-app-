@@ -40,9 +40,12 @@ SELECT is(
 
 SELECT ok(
   has_table_privilege('authenticated', 'public.organizations', 'SELECT')
-  AND has_table_privilege('authenticated', 'public.student_screenings', 'INSERT')
+  AND has_column_privilege('authenticated', 'public.screening_sessions', 'name', 'INSERT')
+  AND has_column_privilege('authenticated', 'public.student_screenings', 'student_name', 'INSERT')
+  AND NOT has_column_privilege('authenticated', 'public.screening_sessions', 'created_by', 'INSERT')
+  AND NOT has_column_privilege('authenticated', 'public.student_screenings', 'created_by', 'INSERT')
   AND has_table_privilege('authenticated', 'public.session_assignments', 'DELETE'),
-  'authenticated retains the application table operations'
+  'authenticated retains approved operations and cannot supply creator attribution'
 );
 
 SELECT ok(

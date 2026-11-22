@@ -21,6 +21,13 @@ import { ProfilePage } from './pages/ProfilePage';
 import { LoginPage } from './pages/LoginPage';
 import { AcceptInvitationPage } from './pages/AcceptInvitationPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
+import { AdminDashboardPage } from './pages/AdminDashboardPage';
+import { AdminUsersPage } from './pages/AdminUsersPage';
+
+function RoleDashboardPage() {
+  const { user } = useAuth();
+  return user?.role === 'organization_admin' ? <AdminDashboardPage /> : <DashboardPage />;
+}
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { user, isLoading, isPasswordRecoveryActive } = useAuth();
@@ -63,7 +70,8 @@ export default function App() {
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
           <Route index element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/dashboard" element={<RoleDashboardPage />} />
+          <Route path="/users" element={<AdminUsersPage />} />
           <Route path="/screening-sessions" element={<ScreeningSessionsPage />} />
           <Route path="/student-registration" element={<StudentRegistrationPage />} />
           <Route path="/students" element={<StudentsPage />} />

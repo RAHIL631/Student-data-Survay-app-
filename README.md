@@ -6,7 +6,7 @@ Student Health Hub is a React + TypeScript web application backed by Supabase Au
 
 1. Create a Supabase project.
 2. Copy `.env.example` to `.env` and set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from the project's API settings. These are the project URL and public anon/publishable key; never put a service-role key in the browser or commit it.
-3. Apply every SQL file in `supabase/migrations/` in ascending filename order. This includes the numbered migrations and the timestamped migrations. Use the Supabase CLI or SQL Editor; do not reset a live project or apply `seed.sql` to production.
+3. Apply every SQL migration in `supabase/migrations/` in ascending filename order using Supabase CLI migration tooling. For hosted use, compare the existing migration history and follow [the deployment plan](docs/deployment/hosted-supabase-migration-plan.md); never reset a live project or apply `seed.sql` to production.
 4. Create an organization administrator in Supabase Authentication, then create the initial organization and profile from the SQL Editor:
 
 ```sql
@@ -41,14 +41,22 @@ Set the application's allowed redirect URLs in Supabase Authentication settings 
 - Enumerators open **Screening Sessions**, choose **Start screening**, and record students for that session.
 - Student screening records, reports, and audit history are stored in Supabase; RLS restricts access by organization and role.
 
-After the initial administrator is provisioned, organization administrators can invite district managers and enumerators from the Enumerators page. District managers can invite enumerators in their own district. Invitation acceptance provisions the profile from the stored invitation scope; do not expose a Supabase service-role key in this frontend.
+After the initial administrator is provisioned, organization administrators can invite district managers and enumerators from the Enumerators page. District managers can invite enumerators in their own district. Invitation acceptance provisions the profile from the stored invitation scope; do not expose a Supabase service-role key in this frontend. Organization administrators can activate/deactivate other organization profiles from Settings. Inactive users are denied protected database access and signed out by the frontend.
+
+The database supports multiple enumerators assigned to a session. Assignment writes require an active enumerator in the same organization and district. Student SI numbers are reserved through an authenticated RPC before a student record is created or its SI value changed; clients cannot read or write the reservation table directly. Expired reservations are cleaned up through a server-side service-role-only function.
+
+The Reports page exports the signed-in user's RLS-scoped student records as CSV, Excel, or PDF. Exports are generated in the browser from records loaded by the application; they do not perform a broader database query. CSV and spreadsheet text values are protected against common formula injection prefixes. Treat downloaded reports as sensitive student data and store/share them only according to your organization's policy.
 
 ## Validate
 
 ```powershell
+npm run validate
 npm test
 npm run build
+npm audit --audit-level=moderate
 ```
+
+With the local Supabase stack running, validate backend policies and SI race handling with `supabase test db` and `npm run test:si-concurrency`. These commands use the local database; do not point them at production.
 
 The app intentionally shows an unconfigured-backend message and does not fall back to sample data when local Supabase settings are absent. Cloud operation requires the project, migrations, Auth users, and organization profiles described above.
 

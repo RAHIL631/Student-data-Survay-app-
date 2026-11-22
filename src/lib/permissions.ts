@@ -1,18 +1,19 @@
 import type { Role, RouteKey } from '../types';
 import { serializeCsv } from './csv.js';
+import { canAccessRoute } from './roleAccess.js';
 
-const roleAccess: Record<Role, RouteKey[]> = {
-  organization_admin: ['dashboard', 'screening-sessions', 'student-registration', 'students', 'schools', 'districts', 'enumerators', 'assignments', 'reports', 'audit-logs', 'settings', 'profile'],
-  district_manager: ['dashboard', 'screening-sessions', 'student-registration', 'students', 'schools', 'districts', 'enumerators', 'assignments', 'reports', 'audit-logs', 'profile'],
-  enumerator: ['dashboard', 'screening-sessions', 'student-registration', 'students', 'reports', 'profile'],
-};
+export { canAccessRoute };
 
-export function canAccessRoute(role: Role, routeKey: RouteKey): boolean {
-  return roleAccess[role].includes(routeKey);
+export function getRoleLabel(role: Role): string {
+  switch (role) {
+    case 'organization_admin': return 'Organization administrator';
+    case 'district_manager': return 'District manager';
+    case 'enumerator': return 'Enumerator';
+  }
 }
 
-export function getHomeRoute(role: Role): RouteKey {
-  return role === 'organization_admin' ? 'settings' : 'dashboard';
+export function getHomeRoute(_role: Role): RouteKey {
+  return 'dashboard';
 }
 
 export function calculateAge(dateOfBirth: string, screeningDate: string): number {

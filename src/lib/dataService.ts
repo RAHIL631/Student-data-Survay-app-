@@ -41,6 +41,22 @@ export type InvitationSubmissionResult =
   | { status: 'auth_request_accepted'; invitationId: string }
   | { status: 'already_processing' | 'outcome_unknown' };
 
+export class InactiveProfileError extends Error {
+  constructor() {
+    super('This account is inactive. Contact an organization administrator to restore access.');
+    this.name = 'InactiveProfileError';
+  }
+}
+
+export type ManagedProfile = {
+  id: string;
+  name: string;
+  email: string;
+  role: AppUser['role'];
+  districtId: string | null;
+  isActive: boolean;
+};
+
 export async function getProfile(userId: string): Promise<AppUser> {
   if (isLocalTestSessionActive() && userId === getLocalTestUser().id) {
     return getLocalTestUser();
@@ -48,7 +64,7 @@ export async function getProfile(userId: string): Promise<AppUser> {
 
   const { data, error } = await requireSupabase()
     .from('profiles')
-    .select('id, organization_id, email, full_name, role, district_id')
+    .select('id, organization_id, email, full_name, role, district_id, is_active')
     .eq('id', userId)
     .maybeSingle();
 
@@ -56,6 +72,7 @@ export async function getProfile(userId: string): Promise<AppUser> {
   if (!data) {
     throw new Error('Your account is authenticated but has no organization profile. Ask an organization administrator to provision your profile.');
   }
+  if (!data.is_active) throw new InactiveProfileError();
 
   return {
     id: data.id,
@@ -317,6 +334,7 @@ export async function getEnumerators(): Promise<AppUser[]> {
     .from('profiles')
     .select('id, organization_id, email, full_name, role, district_id')
     .eq('role', 'enumerator')
+    .eq('is_active', true)
     .order('full_name');
 
   throwIfError(error);
@@ -328,6 +346,45 @@ export async function getEnumerators(): Promise<AppUser[]> {
     role: row.role,
     districtId: row.district_id ?? undefined,
   }));
+}
+
+export async function getOrganizationProfiles(): Promise<ManagedProfile[]> {
+  const { data, error } = await requireSupabase()
+    .from('profiles')
+    .select('id, full_name, email, role, district_id, is_active')
+    .order('full_name');
+  throwIfError(error);
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    name: row.full_name,
+    email: row.email,
+    role: row.role,
+    districtId: row.district_id,
+    isActive: row.is_active,
+  }));
+}
+
+export async function setProfileActive(profileId: string, isActive: boolean): Promise<void> {
+  const { data, error } = await requireSupabase().rpc('set_profile_active', {
+    target_profile_id: profileId,
+    target_is_active: isActive,
+  });
+  throwIfError(error);
+  if (data !== true) throw new Error('The account status could not be changed.');
+}
+
+export async function transferRecordOwnership(input: {
+  recordType: 'schools' | 'screening_sessions' | 'student_screenings';
+  recordId: string;
+  ownerId: string;
+}): Promise<void> {
+  const { data, error } = await requireSupabase().rpc('transfer_record_ownership', {
+    target_record_type: input.recordType,
+    target_record_id: input.recordId,
+    target_owner_id: input.ownerId,
+  });
+  throwIfError(error);
+  if (data !== true) throw new Error('The record owner could not be changed.');
 }
 
 export async function getUserInvitations(): Promise<InvitationHistoryRecord[]> {
@@ -455,7 +512,6 @@ export async function getAuditLogs(): Promise<AuditLog[]> {
 
 export async function createScreeningSession(input: {
   organizationId: string;
-  userId: string;
   name: string;
   date: string;
   beoName: string;
@@ -465,7 +521,6 @@ export async function createScreeningSession(input: {
 }): Promise<void> {
   const { error } = await requireSupabase().from('screening_sessions').insert({
     organization_id: input.organizationId,
-    created_by: input.userId,
     name: input.name,
     beo_name: input.beoName,
     head_master_name: input.headMasterName,
@@ -562,6 +617,7 @@ export async function createStudentScreening(input: {
   userId: string;
   sessionId: string;
   student: StudentRecord;
+  siReservationKey?: string;
 }): Promise<void> {
   if (isLocalTestSessionActive()) {
     const session = getLocalTestSessions().find((item) => item.id === input.sessionId);
@@ -577,14 +633,31 @@ export async function createStudentScreening(input: {
   }
 
   const student = input.student;
-  const { error } = await requireSupabase().from('student_screenings').insert({
+  const client = requireSupabase();
+  const studentId = student.id || crypto.randomUUID();
+  const requestedSiNumber = student.siNumber?.trim() || null;
+  let reservationId: string | null = null;
+  if (requestedSiNumber) {
+    if (!input.siReservationKey) throw new Error('Reserve the SI number before saving this screening.');
+    const { data, error: reservationError } = await client.rpc('reserve_student_si_number', {
+      target_session_id: input.sessionId,
+      requested_si_number: requestedSiNumber,
+      request_idempotency_key: input.siReservationKey,
+      requested_student_id: studentId,
+    });
+    throwIfError(reservationError);
+    if (!data) throw new Error('The SI number could not be reserved.');
+    reservationId = data;
+  }
+
+  const payload = {
+    id: studentId,
     organization_id: input.organizationId,
-    created_by: input.userId,
     session_id: input.sessionId,
     district_id: student.districtId,
     taluk_id: student.talukId,
     school_id: student.schoolId,
-    si_number: student.siNumber,
+    si_number: requestedSiNumber,
     student_name: student.studentName,
     class_name: student.className,
     section: student.section,
@@ -600,8 +673,22 @@ export async function createStudentScreening(input: {
     mid_arm_circumference_cm: student.midArmCircumferenceCm,
     additional_remarks: student.additionalRemarks,
     screening_date: student.screeningDate,
-  });
+    si_reservation_id: reservationId,
+  };
+  const { error } = await client.from('student_screenings').insert(payload);
 
+  if (!error) return;
+  if (error.code === '23505') {
+    const { data: existing, error: lookupError } = await client.from('student_screenings')
+      .select('id, organization_id, session_id, district_id, taluk_id, school_id, si_number, student_name, class_name, section, sex, date_of_birth, age, height_cm, weight_kg, bmi, skeletal_deformity, skeletal_observation, skin_thickness_mm, mid_arm_circumference_cm, additional_remarks, screening_date, created_by')
+      .eq('id', studentId)
+      .maybeSingle();
+    throwIfError(lookupError);
+    const matches = existing
+      && existing.created_by === input.userId
+      && Object.entries(payload).every(([key, value]) => key === 'si_reservation_id' || existing[key as keyof typeof existing] === value);
+    if (matches) return;
+  }
   throwIfError(error);
 }
 
@@ -609,6 +696,7 @@ export async function updateStudentScreening(input: {
   studentId: string;
   userId: string;
   student: StudentRecord;
+  siReservationKey?: string;
 }): Promise<void> {
   if (isLocalTestSessionActive()) {
     updateLocalTestStudent({
@@ -618,10 +706,34 @@ export async function updateStudentScreening(input: {
     return;
   }
 
-  const { data, error } = await requireSupabase()
+  const client = requireSupabase();
+  const { data: current, error: readError } = await client
+    .from('student_screenings')
+    .select('id, organization_id, session_id, si_number')
+    .eq('id', input.studentId)
+    .maybeSingle();
+  throwIfError(readError);
+  if (!current) throw new Error('The screening record could not be loaded in your authorized scope.');
+
+  const requestedSiNumber = input.student.siNumber?.trim() || null;
+  let reservationId: string | null = null;
+  if (requestedSiNumber && requestedSiNumber !== current.si_number) {
+    if (!input.siReservationKey) throw new Error('Reserve the SI number before saving this screening.');
+    const { data: reserved, error: reservationError } = await client.rpc('reserve_student_si_number', {
+      target_session_id: current.session_id,
+      requested_si_number: requestedSiNumber,
+      request_idempotency_key: input.siReservationKey,
+      requested_student_id: input.studentId,
+    });
+    throwIfError(reservationError);
+    if (!reserved) throw new Error('The SI number could not be reserved.');
+    reservationId = reserved;
+  }
+
+  const { data, error } = await client
     .from('student_screenings')
     .update({
-      si_number: input.student.siNumber,
+      si_number: requestedSiNumber,
       student_name: input.student.studentName,
       class_name: input.student.className,
       section: input.student.section,
@@ -636,6 +748,7 @@ export async function updateStudentScreening(input: {
       skin_thickness_mm: input.student.skinThicknessMm,
       mid_arm_circumference_cm: input.student.midArmCircumferenceCm,
       additional_remarks: input.student.additionalRemarks,
+      si_reservation_id: reservationId,
     })
     .eq('id', input.studentId)
     .select('id')
@@ -661,7 +774,7 @@ export async function getDashboardSummary(): Promise<{
   const [students, sessions, enumerators, districts] = await Promise.all([
     client.from('student_screenings').select('id', { count: 'exact', head: true }),
     client.from('screening_sessions').select('id', { count: 'exact', head: true }),
-    client.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'enumerator'),
+    client.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'enumerator').eq('is_active', true),
     client.from('districts').select('id', { count: 'exact', head: true }),
   ]);
 

@@ -6,6 +6,8 @@ The repository does not establish that the hosted Supabase project has automated
 
 The local Supabase database is a development environment, not a production backup. Git migrations and seed files are not backups of user data.
 
+The repository contains seven additional backend migrations dated `20261122` through `20261128`, covering server-controlled creator attribution, active profiles and nullable ownership metadata, private manual-SI reservations, active audit actor enforcement, assignment district consistency, and an SI reservation function correction. These migration files describe schema changes; they do not contain a recoverable copy of production rows. Verify the hosted migration history and arrange an approved backup/recovery point before any hosted migration. The current SI reservations are short-lived operational records (15-minute expiry) and are not substitutes for saved student screenings.
+
 ## Owner verification checklist
 
 In the hosted project's Supabase Dashboard, have an authorized owner:

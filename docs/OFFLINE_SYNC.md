@@ -1,7 +1,9 @@
-# Offline synchronization design
+# Offline synchronization status
 
-**Implementation status on `integration`: not implemented.** This document describes a proposed offline-first workflow; it is not evidence that the current application queues or synchronizes submissions.
+**Offline submission and synchronization are not implemented on `integration`.** Production student screening writes use the signed-in Supabase client and require network access. The application does not queue production submissions in IndexedDB, retry them in the background, or provide offline conflict resolution. Do not use this application to collect real student records while disconnected.
 
-The current `integration` branch writes student screenings through `src/lib/dataService.ts` directly to Supabase. Local test mode stores its own test records in browser storage, but production submissions do not use an offline queue. The offline-sync implementation on `chore/project-structure` is not compatible with the current schema: it depends on profile `is_active`, owner-scoped columns, SI reservation tables, and a reservation RPC that are absent from the `integration` migrations and hosted project.
+The optional local test sign-in is a separate development-only mode. Its test records are stored in browser storage and are not production data or an offline synchronization queue.
 
-Do not advertise offline submission or merge that implementation until its schema dependencies, RLS policies, idempotency behavior, privacy controls, and migrations have been redesigned and tested against the current schema.
+The local schema includes active profiles, ownership metadata, multi-enumerator session assignments, and manual SI-number reservations. Those online safeguards do not implement offline submission. The reservation RPC requires a signed-in caller, a target session, the manually entered SI number, an idempotency key, and (for edits) the student record ID. An offline client cannot safely assume an SI reservation or a successful write.
+
+The collaborator offline queue is not included. Before a future offline feature is enabled, its local storage, student-data-at-rest, device-loss, account-switch/logout retention, retry/idempotency, manual SI reservation, conflict resolution, and authorization behavior must be redesigned and tested against the current schema and RLS. Do not advertise offline support until that work ships and is verified.
