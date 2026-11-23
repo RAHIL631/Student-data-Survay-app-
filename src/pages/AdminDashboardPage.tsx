@@ -25,7 +25,7 @@ export function AdminDashboardPage() {
   );
 
   const cards = [
-    { title: 'Students screened', count: data.summary.studentCount, icon: Users },
+    { title: 'Student records', count: data.summary.studentCount, icon: Users },
     { title: 'Screening sessions', count: data.summary.sessionCount, icon: ClipboardList },
     { title: 'Districts', count: data.summary.districtCount, icon: MapPinned },
     { title: 'Organization users', count: data.profiles.length, icon: School },

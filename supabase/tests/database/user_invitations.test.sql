@@ -116,6 +116,15 @@ SELECT is(
   'conflict',
   'existing Auth account email is rejected without disclosing account details'
 );
+SELECT is(
+  (SELECT result_code FROM public.request_user_invitation(
+    'not-an-email', 'enumerator',
+    '20000000-0000-0000-0000-000000000101',
+    '90000000-0000-0000-0000-000000000119'
+  )),
+  'invalid_request',
+  'malformed invitation data gets a safe actionable result code'
+);
 SELECT set_config(
   'test.invite_other_district_id',
   (SELECT id::TEXT FROM public.user_invitations WHERE email = 'enumerator-two@invite.test'),
@@ -133,9 +142,19 @@ SELECT throws_ok(
     '20000000-0000-0000-0000-000000000103',
     '90000000-0000-0000-0000-000000000104'
   )$$,
-  '42501',
+  '22023',
   NULL,
-  'organization admin cannot invite into another organization'
+  'invalid cross-organization district is reported distinctly'
+);
+SELECT throws_ok(
+  $$SELECT * FROM public.request_user_invitation(
+    'missing-district@invite.test', 'enumerator',
+    '20000000-0000-0000-0000-000000000199',
+    '90000000-0000-0000-0000-000000000120'
+  )$$,
+  '22023',
+  NULL,
+  'nonexistent district is rejected without creating an invitation'
 );
 
 RESET ROLE;
@@ -331,11 +350,18 @@ SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000107
 SELECT set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000107","role":"authenticated"}', true);
 SELECT throws_ok(
   $$SELECT public.accept_user_invitation(
-    current_setting('test.acceptance_invitation_id')::UUID
+    current_setting('test.acceptance_invitation_id')::UUID, 'Enumerator Test'
   )$$,
   '42501',
   NULL,
   'different authenticated user cannot accept invitation'
+);
+SELECT is(
+  public.verify_user_invitation_context(
+    current_setting('test.acceptance_invitation_id')::UUID
+  ),
+  FALSE,
+  'preflight rejects a different authenticated user without accepting the invitation'
 );
 RESET ROLE;
 
@@ -343,8 +369,28 @@ SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000106', true);
 SELECT set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000106","role":"authenticated"}', true);
 SELECT is(
-  public.accept_user_invitation(
+  public.verify_user_invitation_context(
     current_setting('test.acceptance_invitation_id')::UUID
+  ),
+  TRUE,
+  'preflight accepts the exact confirmed user and pending invitation context'
+);
+SELECT is(
+  public.verify_user_invitation_context('ffffffff-ffff-4fff-8fff-ffffffffffff'::UUID),
+  FALSE,
+  'preflight rejects an unrelated invitation ID'
+);
+RESET ROLE;
+SELECT is(
+  (SELECT status FROM public.user_invitations
+   WHERE id = current_setting('test.acceptance_invitation_id')::UUID),
+  'pending',
+  'preflight leaves the invitation pending when inspected by the test owner'
+);
+SET LOCAL ROLE authenticated;
+SELECT is(
+  public.accept_user_invitation(
+    current_setting('test.acceptance_invitation_id')::UUID, 'Enumerator Test'
   ),
   TRUE,
   'exact Auth user with confirmed matching email accepts invitation'
@@ -359,18 +405,31 @@ SELECT is(
   'acceptance creates profile using invitation scope and role'
 );
 SELECT is(
+  (SELECT is_active FROM public.profiles
+   WHERE id = '00000000-0000-0000-0000-000000000106'),
+  TRUE,
+  'accepted profile is active'
+);
+SELECT is(
   public.accept_user_invitation(
-    current_setting('test.acceptance_invitation_id')::UUID
+    current_setting('test.acceptance_invitation_id')::UUID, 'Enumerator Test'
   ),
   TRUE,
   'exact repeated acceptance is idempotent'
+);
+SELECT is(
+  public.verify_user_invitation_context(
+    current_setting('test.acceptance_invitation_id')::UUID
+  ),
+    FALSE,
+    'preflight blocks password setup after the invitation and matching profile are already accepted'
 );
 RESET ROLE;
 SELECT is(
   (SELECT full_name FROM public.profiles
    WHERE id = '00000000-0000-0000-0000-000000000106'),
-  '',
-  'acceptance uses the existing full_name default without inventing a value'
+  'Enumerator Test',
+  'acceptance stores the name supplied by the invitee'
 );
 SELECT is(
   (SELECT status FROM public.user_invitations
@@ -449,7 +508,7 @@ SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000110
 SELECT set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000110","role":"authenticated"}', true);
 SELECT throws_ok(
   $$SELECT public.accept_user_invitation(
-    current_setting('test.late_response_invitation_id')::UUID
+    current_setting('test.late_response_invitation_id')::UUID, 'Late Test User'
   )$$,
   '42501',
   NULL,
@@ -467,6 +526,13 @@ SELECT is(
    WHERE id = current_setting('test.late_response_invitation_id')::UUID),
   'accepted_by_auth',
   'late Auth response records the known Auth result without claiming inbox delivery'
+);
+SELECT is(
+  public.verify_user_invitation_context(
+    current_setting('test.late_response_invitation_id')::UUID
+  ),
+  FALSE,
+  'preflight rejects a cancelled invitation even when Auth accepted the user'
 );
 
 SET LOCAL ROLE authenticated;
@@ -519,11 +585,18 @@ SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000108
 SELECT set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000108","role":"authenticated"}', true);
 SELECT throws_ok(
   $$SELECT public.accept_user_invitation(
-    current_setting('test.unconfirmed_invitation_id')::UUID
+    current_setting('test.unconfirmed_invitation_id')::UUID, 'Unconfirmed Test User'
   )$$,
   '42501',
   NULL,
   'unconfirmed Auth email cannot accept invitation'
+);
+SELECT is(
+  public.verify_user_invitation_context(
+    current_setting('test.unconfirmed_invitation_id')::UUID
+  ),
+  FALSE,
+  'preflight rejects an unconfirmed Auth email'
 );
 RESET ROLE;
 
@@ -560,7 +633,7 @@ SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000113
 SELECT set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000113","role":"authenticated"}', true);
 SELECT throws_ok(
   $$SELECT public.accept_user_invitation(
-    current_setting('test.unlinked_invitation_id')::UUID
+    current_setting('test.unlinked_invitation_id')::UUID, 'Unlinked Test User'
   )$$,
   '42501',
   NULL,
@@ -635,11 +708,18 @@ RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000112', true);
 SELECT set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000112","role":"authenticated"}', true);
+SELECT is(
+  public.verify_user_invitation_context(
+    current_setting('test.duplicate_profile_invitation_id')::UUID
+  ),
+  FALSE,
+  'preflight rejects a duplicate normalized profile email before password changes'
+);
 SELECT throws_ok(
   $$SELECT public.accept_user_invitation(
-    current_setting('test.duplicate_profile_invitation_id')::UUID
+    current_setting('test.duplicate_profile_invitation_id')::UUID, 'Duplicate Test User'
   )$$,
-  '42501',
+  '23505',
   NULL,
   'existing normalized profile email blocks acceptance without linking or modification'
 );
@@ -657,11 +737,29 @@ SELECT is(
 SELECT is(
   has_function_privilege(
     'authenticated',
-    'public.accept_user_invitation(uuid)',
+    'public.accept_user_invitation(uuid,text)',
     'EXECUTE'
   ),
   TRUE,
   'authenticated role can execute guarded acceptance function'
+);
+SELECT is(
+  has_function_privilege(
+    'authenticated',
+    'public.verify_user_invitation_context(uuid)',
+    'EXECUTE'
+  ),
+  TRUE,
+  'authenticated role can execute read-only invitation preflight'
+);
+SELECT is(
+  has_function_privilege(
+    'anon',
+    'public.verify_user_invitation_context(uuid)',
+    'EXECUTE'
+  ),
+  FALSE,
+  'anonymous role cannot execute invitation preflight'
 );
 
 DELETE FROM auth.users

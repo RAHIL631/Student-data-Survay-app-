@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useRemoteData } from '../hooks/useRemoteData';
 import { useAuth } from '../context/AuthContext';
 import { getStudentRecord } from '../lib/dataService';
+import { canEditStudentScreening } from '../lib/roleAccess.js';
 
 function display(value: string | number | null): string {
   return value === null || value === '' ? '—' : String(value);
@@ -65,7 +66,7 @@ export function StudentDetailsPage() {
         </div>
         <div className="flex gap-2">
           <button onClick={() => navigate('/students')} className="rounded-xl border border-slate-300 px-4 py-2 font-medium text-slate-700 hover:bg-slate-50">Back to students</button>
-          {user?.role !== 'district_manager' && <button onClick={() => navigate(`/student-registration?studentId=${encodeURIComponent(student.id)}`)} className="rounded-xl bg-cyan-600 px-4 py-2 font-medium text-white hover:bg-cyan-500">Edit screening</button>}
+          {canEditStudentScreening(user?.role, user?.id, student) && <button onClick={() => navigate(`/student-registration?studentId=${encodeURIComponent(student.id)}`)} className="rounded-xl bg-cyan-600 px-4 py-2 font-medium text-white hover:bg-cyan-500">Edit screening</button>}
         </div>
       </div>
 

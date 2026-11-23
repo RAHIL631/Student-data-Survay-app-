@@ -102,6 +102,11 @@ export function LoginPage() {
                 Your password has been updated. Sign in with your new password.
               </div>
             )}
+            {location.state?.invitationAccepted && (
+              <div role="status" className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                Your account is ready. Sign in with the password you just created.
+              </div>
+            )}
             {!isSupabaseConfigured && (
               <div role="alert" className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
                 Backend not configured. Add your Supabase project URL and public anon key to a local <code>.env</code> file, then restart the app.

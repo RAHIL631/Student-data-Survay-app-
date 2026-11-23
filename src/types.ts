@@ -57,6 +57,8 @@ export type ScreeningSession = {
 export type StudentRecord = {
   id: string;
   sessionId: string;
+  createdBy?: string | null;
+  ownerId?: string | null;
   siNumber: string | null;
   studentName: string | null;
   className: string | null;

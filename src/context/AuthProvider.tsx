@@ -224,34 +224,89 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(startLocalTestSession());
         setAuthError(null);
       },
-      acceptInvitation: async (invitationId: string, password: string) => {
+      acceptInvitation: async (invitationId: string, fullName: string, password: string) => {
         if (!supabase) {
           throw new Error('Supabase is not configured.');
         }
+        const authClient = supabase;
 
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        const { data: { session }, error: sessionError } = await authClient.auth.getSession();
         if (sessionError) {
-          throw new Error('The invitation session could not be verified.');
+          throw new Error('The invitation session could not be verified. Sign out of other accounts and reopen the invitation in a private browser window.');
         }
         if (!session) {
-          throw new Error('The invitation link is invalid or has expired. Open the link from your invitation email again.');
+          throw new Error('No invitation session is active. Sign out of other accounts, then reopen the invitation link in a private browser window.');
         }
 
-        const { error: passwordError } = await supabase.auth.updateUser({ password });
+        let passwordUpdated = false;
+        const verifyCurrentSession = async (expectedUserId: string, expectedEmail: string) => {
+          const { data: { session: currentSession }, error: currentSessionError } = await authClient.auth.getSession();
+          if (currentSessionError || !currentSession
+            || currentSession.user.id !== expectedUserId
+            || currentSession.user.email?.trim().toLowerCase() !== expectedEmail) {
+            const statusMessage = passwordUpdated
+              ? 'Your password was updated, but invitation acceptance was not confirmed.'
+              : 'No password was changed.';
+            throw new Error(`${statusMessage} This browser session changed during invitation setup. Reopen the original invitation in a private browser window.`);
+          }
+
+          const { data: { user: verifiedUser }, error: verifyError } = await authClient.auth.getUser(currentSession.access_token);
+          if (verifyError || !verifiedUser
+            || verifiedUser.id !== expectedUserId
+            || verifiedUser.email?.trim().toLowerCase() !== expectedEmail) {
+            throw new Error('The signed-in account could not be verified as the invited user. Sign out of other accounts and reopen the invitation in a private browser window.');
+          }
+        };
+
+        const { data: { user: verifiedUser }, error: verifyError } = await authClient.auth.getUser(session.access_token);
+        const expectedEmail = session.user.email?.trim().toLowerCase();
+        if (verifyError || !verifiedUser || !expectedEmail
+          || verifiedUser.id !== session.user.id
+          || verifiedUser.email?.trim().toLowerCase() !== expectedEmail) {
+          throw new Error('The active browser session does not match a verified invitation account. Sign out of other accounts and reopen the invitation in a private browser window.');
+        }
+
+        const { data: invitationVerified, error: preflightError } = await authClient.rpc(
+          'verify_user_invitation_context',
+          { target_invitation_id: invitationId },
+        );
+        if (preflightError || invitationVerified !== true) {
+          throw new Error('This invitation is not available for password setup, or we could not verify the current session. No password was changed. If you already completed setup, return to the sign-in page. Otherwise, sign out of other accounts and reopen the original invitation in a private browser window.');
+        }
+
+        await verifyCurrentSession(verifiedUser.id, expectedEmail);
+
+        const { error: passwordError } = await authClient.auth.updateUser({ password });
         if (passwordError) {
           throw new Error(passwordError.message);
         }
+        passwordUpdated = true;
 
-        const { data, error } = await supabase.rpc('accept_user_invitation', {
+        await verifyCurrentSession(verifiedUser.id, expectedEmail);
+
+        const { data, error } = await authClient.rpc('accept_user_invitation', {
           target_invitation_id: invitationId,
+          target_full_name: fullName.trim(),
         });
-        if (error || data !== true) {
-          throw new Error('This invitation cannot be accepted. It may have been cancelled or already used.');
+        if (error) {
+          if (error.code === '23505') {
+            throw new Error('Your password was updated, but a profile already exists for this email. Do not request another invitation; contact an organization administrator to reconcile the account.');
+          }
+          if (error.code === '42501') {
+            throw new Error('Your password was updated, but this invitation was not accepted for the current session. Sign out of other accounts and reopen the original invitation in a private browser window. Do not request another invitation; ask an administrator to check its status if the problem continues.');
+          }
+          throw new Error(`Your password was updated, but invitation acceptance could not be confirmed (${error.code || 'database_error'}). Retry this same invitation if it is still pending; do not request another invitation. Contact an administrator if the result remains unclear.`);
+        }
+        if (data !== true) {
+          throw new Error('Your password was updated, but no invitation acceptance was confirmed. Retry this same invitation if it is still pending; do not request another invitation.');
         }
 
-        const profile = await getProfile(session.user.id);
+        const { error: signOutError } = await authClient.auth.signOut({ scope: 'local' });
+        if (signOutError) {
+          throw new Error('The invitation was accepted and your profile was created, but automatic sign-out failed. Your account is set up; sign out manually before returning to the sign-in page.');
+        }
         profileLoadId.current += 1;
-        setUser(profile);
+        setUser(null);
         setAuthError(null);
       },
       logout: async () => {

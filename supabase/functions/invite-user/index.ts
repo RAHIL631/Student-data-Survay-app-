@@ -1,6 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.119.0';
 import type { Database } from '../../../src/lib/database.types.ts';
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2.119.0';
+import { classifyInvitationState } from './invitation-state.js';
 
 type InvitationRole = 'district_manager' | 'enumerator';
 type InvitationAction =
@@ -22,8 +23,14 @@ type InvitationRequestRow = {
   result_code: string;
 };
 
+type ExistingInvitationState = {
+  status: string;
+  auth_status: string;
+};
+
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const defaultDevelopmentOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173'];
+const defaultInvitationRedirectOrigin = 'https://student-data-survay-app.vercel.app';
 
 function getAllowedOrigins(): Set<string> {
   const configuredOrigins = Deno.env.get('INVITE_ALLOWED_ORIGINS');
@@ -135,13 +142,37 @@ async function handleInvitation(
     },
   );
   if (requestError) {
-    const status = requestError.code === '42501' ? 403 : 503;
-    return jsonResponse({ code: 'invitation_unavailable' }, status, origin, allowedOrigins);
+    if (requestError.code === '42501') {
+      return jsonResponse({ code: 'not_authorized' }, 403, origin, allowedOrigins);
+    }
+    if (requestError.code === '22023') {
+      return jsonResponse({ code: 'invalid_district' }, 400, origin, allowedOrigins);
+    }
+    return jsonResponse({ code: 'service_unavailable' }, 503, origin, allowedOrigins);
   }
 
   const request: InvitationRequestRow | undefined = requestRows?.[0];
+  if (request?.result_code === 'invalid_request') {
+    return jsonResponse({ code: 'invalid_invitation_request' }, 400, origin, allowedOrigins);
+  }
   if (!request || request.result_code === 'conflict' || !request.invitation_id) {
-    return jsonResponse({ code: 'invitation_unavailable' }, 409, origin, allowedOrigins);
+    return jsonResponse({ code: 'invitation_conflict' }, 409, origin, allowedOrigins);
+  }
+
+  if (!request.created) {
+    const { data: existing, error: existingError } = await serviceClient
+      .from('user_invitations')
+      .select('status, auth_status')
+      .eq('id', request.invitation_id)
+      .maybeSingle();
+    if (existingError || !existing) {
+      return jsonResponse({ code: 'invitation_outcome_unknown' }, 503, origin, allowedOrigins);
+    }
+
+    const existingState = classifyInvitationState(existing as ExistingInvitationState);
+    if (existingState !== 'claimable') {
+      return jsonResponse({ status: existingState }, 200, origin, allowedOrigins);
+    }
   }
 
   const { data: claimed, error: claimError } = await serviceClient.rpc(
@@ -152,13 +183,28 @@ async function handleInvitation(
     return jsonResponse({ code: 'invitation_outcome_unknown' }, 503, origin, allowedOrigins);
   }
   if (claimed !== true) {
-    return jsonResponse({ status: 'already_processing' }, 202, origin, allowedOrigins);
+    const { data: latest, error: latestError } = await serviceClient
+      .from('user_invitations')
+      .select('status, auth_status')
+      .eq('id', request.invitation_id)
+      .maybeSingle();
+    if (latestError || !latest) {
+      return jsonResponse({ code: 'invitation_outcome_unknown' }, 503, origin, allowedOrigins);
+    }
+    const latestState = classifyInvitationState(latest as ExistingInvitationState);
+    return jsonResponse(
+      { status: latestState === 'claimable' ? 'outcome_unknown' : latestState },
+      latestState === 'already_processing' ? 202 : 200,
+      origin,
+      allowedOrigins,
+    );
   }
 
   if (!origin) {
     return jsonResponse({ code: 'origin_not_allowed' }, 400, origin, allowedOrigins);
   }
-  const redirectUrl = new URL('/accept-invitation', origin);
+  const redirectOrigin = Deno.env.get('INVITE_REDIRECT_ORIGIN')?.trim() || defaultInvitationRedirectOrigin;
+  const redirectUrl = new URL('/accept-invitation', redirectOrigin);
   redirectUrl.searchParams.set('invitation_id', request.invitation_id);
   let inviteData: Awaited<ReturnType<typeof serviceClient.auth.admin.inviteUserByEmail>>['data'];
   let inviteError: Awaited<ReturnType<typeof serviceClient.auth.admin.inviteUserByEmail>>['error'];
@@ -200,7 +246,7 @@ async function handleInvitation(
       return jsonResponse({ code: 'invitation_outcome_unknown' }, 503, origin, allowedOrigins);
     }
     return definitiveRejection
-      ? jsonResponse({ code: 'invitation_unavailable' }, 409, origin, allowedOrigins)
+      ? jsonResponse({ code: 'auth_rejected' }, 409, origin, allowedOrigins)
       : jsonResponse({ status: 'outcome_unknown' }, 202, origin, allowedOrigins);
   }
 

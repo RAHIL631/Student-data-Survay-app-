@@ -7,17 +7,30 @@ export function AcceptInvitationPage() {
   const navigate = useNavigate();
   const { acceptInvitation, isLoading } = useAuth();
   const invitationId = searchParams.get('invitation_id');
+  const [fullName, setFullName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    if (isSaving) {
+      event.preventDefault();
+      return;
+    }
     event.preventDefault();
     setError('');
 
     if (!invitationId) {
       setError('The invitation link is missing its invitation reference.');
+      return;
+    }
+    if (!fullName.trim()) {
+      setError('Enter your full name to continue.');
+      return;
+    }
+    if (password.length < 8) {
+      setError('Your password must contain at least 8 characters.');
       return;
     }
     if (password !== confirmPassword) {
@@ -27,8 +40,8 @@ export function AcceptInvitationPage() {
 
     setIsSaving(true);
     try {
-      await acceptInvitation(invitationId, password);
-      navigate('/dashboard', { replace: true });
+      await acceptInvitation(invitationId, fullName.trim(), password);
+      navigate('/login', { replace: true, state: { invitationAccepted: true } });
     } catch (acceptError: unknown) {
       setError(acceptError instanceof Error ? acceptError.message : 'The invitation could not be accepted.');
     } finally {
@@ -43,7 +56,19 @@ export function AcceptInvitationPage() {
         {isLoading && <p role="status" className="mt-3 text-sm text-slate-600">Verifying your invitation…</p>}
         {!isLoading && invitationId && (
           <form onSubmit={(event) => void handleSubmit(event)} className="mt-5 space-y-4">
-            <p className="text-sm text-slate-600">Choose a password to finish setting up your account.</p>
+            <p className="text-sm text-slate-600">Enter your name and choose a password to finish setting up your account.</p>
+            <label className="block text-sm font-medium text-slate-700">
+              Full name
+              <input
+                type="text"
+                required
+                maxLength={200}
+                autoComplete="name"
+                value={fullName}
+                onChange={(event) => setFullName(event.target.value)}
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5"
+              />
+            </label>
             <label className="block text-sm font-medium text-slate-700">
               New password
               <input

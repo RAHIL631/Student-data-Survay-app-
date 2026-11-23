@@ -165,7 +165,14 @@ export function saveLocalTestStudent(student: StudentRecord, actorId: string): v
     throw new Error('A student with this SI Number is already saved in local test data.');
   }
 
-  data.students = [{ ...student, schoolName: school.name, districtName: district.name, talukName: taluk.name }, ...data.students];
+  data.students = [{
+    ...student,
+    createdBy: student.createdBy ?? actorId,
+    ownerId: student.ownerId ?? actorId,
+    schoolName: school.name,
+    districtName: district.name,
+    talukName: taluk.name,
+  }, ...data.students];
   data.auditLogs = [{
     id: crypto.randomUUID(),
     actor: localUser.name,

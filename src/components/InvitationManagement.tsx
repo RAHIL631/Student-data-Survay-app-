@@ -60,8 +60,17 @@ export function InvitationManagement() {
         setEmail('');
         setIdempotencyKey(crypto.randomUUID());
       } else if (result.status === 'already_processing') {
-        setMessage('This idempotent request was already claimed. Check invitation history; no resend was attempted.');
-        setIdempotencyKey(crypto.randomUUID());
+        setMessage('This invitation request is still being processed. No additional Auth invitation email was sent. Check invitation history before retrying.');
+      } else if (result.status === 'already_pending') {
+        setMessage('This invitation is already pending in Supabase Auth. No additional invitation email was sent.');
+      } else if (result.status === 'already_accepted') {
+        setMessage('This invitation has already been accepted. No additional invitation email was sent.');
+      } else if (result.status === 'cancelled') {
+        setMessage('This invitation was cancelled. No additional invitation email was sent.');
+      } else if (result.status === 'failed') {
+        setMessage('This invitation request previously failed. No additional invitation email was sent.');
+      } else if (result.status === 'expired') {
+        setMessage('This invitation has expired. No additional invitation email was sent.');
       } else {
         setMessage('The Auth outcome is uncertain. Do not retry; check invitation history and contact an authorized operator.');
       }

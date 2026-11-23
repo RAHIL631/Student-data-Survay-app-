@@ -14,3 +14,10 @@ const roleRoutes = Object.freeze({
 export function canAccessRoute(role, routeKey) {
   return roleRoutes[role]?.includes(routeKey) ?? false;
 }
+
+export function canEditStudentScreening(role, userId, student) {
+  if (role === 'organization_admin') return true;
+  return role === 'enumerator'
+    && Boolean(userId)
+    && (student?.createdBy === userId || student?.ownerId === userId);
+}

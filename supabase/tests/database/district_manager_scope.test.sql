@@ -1,7 +1,7 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
-SELECT plan(108);
+SELECT plan(109);
 
 INSERT INTO auth.users (
   id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -208,10 +208,29 @@ SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000002', true);
 SELECT set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000002","role":"authenticated"}', true);
 
+RESET ROLE;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
+SELECT set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000001","role":"authenticated"}', true);
+SET LOCAL ROLE authenticated;
+SELECT public.set_owner_data_grant(
+  '00000000-0000-0000-0000-000000000002',
+  '00000000-0000-0000-0000-000000000004',
+  TRUE
+);
+RESET ROLE;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000002', true);
+SELECT set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000002","role":"authenticated"}', true);
+SET LOCAL ROLE authenticated;
+
 SELECT is(
   (SELECT count(*)::integer FROM public.profiles WHERE id = '00000000-0000-0000-0000-000000000004'),
   1,
-  'district manager can read enumerators in their district'
+  'Viewer can read the explicitly granted enumerator profile in their district'
+);
+SELECT is(
+  (SELECT count(*)::integer FROM public.profiles WHERE id = '00000000-0000-0000-0000-000000000006'),
+  0,
+  'Viewer cannot read an ungranted enumerator profile in their district'
 );
 SELECT is(
   (SELECT count(*)::integer FROM public.profiles WHERE id = '00000000-0000-0000-0000-000000000005'),

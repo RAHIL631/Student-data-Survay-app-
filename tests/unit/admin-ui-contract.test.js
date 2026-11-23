@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { canAccessRoute } from '../../src/lib/roleAccess.js';
+import { canAccessRoute, canEditStudentScreening } from '../../src/lib/roleAccess.js';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const readSource = (file) => fs.readFileSync(path.join(rootDir, file), 'utf8');
@@ -17,6 +17,18 @@ test('only organization administrators can access staff management', () => {
   const app = readSource('src/App.tsx');
   assert.match(app, /path="\/users"\s+element=\{<AdminUsersPage \/>\}/);
   assert.match(app, /canAccessRoute\(user\.role, routeKey\)/);
+});
+
+test('screening edit affordance follows the database ownership roles', () => {
+  const owned = { createdBy: 'enumerator-a', ownerId: 'enumerator-a' };
+  const transferred = { createdBy: 'enumerator-a', ownerId: 'enumerator-b' };
+  const other = { createdBy: 'enumerator-b', ownerId: 'enumerator-b' };
+
+  assert.equal(canEditStudentScreening('organization_admin', 'admin', other), true);
+  assert.equal(canEditStudentScreening('enumerator', 'enumerator-a', owned), true);
+  assert.equal(canEditStudentScreening('enumerator', 'enumerator-b', transferred), true);
+  assert.equal(canEditStudentScreening('enumerator', 'enumerator-c', other), false);
+  assert.equal(canEditStudentScreening('district_manager', 'viewer', owned), false);
 });
 
 test('dashboard loads current RLS-scoped summary, profiles, and districts with retry UI', () => {
@@ -58,4 +70,46 @@ test('admin dashboard is the organization administrator home with Viewer role la
   assert.match(page, /user\?\.role === 'organization_admin' \? <AdminDashboardPage \/>/);
   assert.match(permissions, /case 'district_manager': return 'Viewer'/);
   assert.match(permissions, /return 'dashboard'/);
+});
+
+test('assignment choices are active and restricted to the selected session district', () => {
+  const page = readSource('src/pages/AssignmentsPage.tsx');
+  const service = readSource('src/lib/dataService.ts');
+  assert.match(page, /enumerator\.districtId === selectedSession\.districtId/);
+  assert.match(page, /disabled=\{saving \|\| sessionsLoading \|\| enumeratorsLoading/);
+  assert.match(page, /Assignment options could not be loaded/);
+  assert.match(service, /\.eq\('role', 'enumerator'\)[\s\S]*\.eq\('is_active', true\)/);
+});
+
+test('dashboard student total is labeled as records rather than completed screenings', () => {
+  const dashboard = readSource('src/pages/DashboardPage.tsx');
+  const adminDashboard = readSource('src/pages/AdminDashboardPage.tsx');
+  const service = readSource('src/lib/dataService.ts');
+  assert.match(dashboard, /label: 'Student records', value: data\.summary\.studentCount/);
+  assert.match(adminDashboard, /title: 'Student records', count: data\.summary\.studentCount/);
+  assert.match(service, /studentCount: students\.count \?\? 0/);
+  assert.match(service, /from\('student_screenings'\)\.select\('id', \{ count: 'exact', head: true \}\)/);
+});
+
+test('inactive member visibility is limited to an active same-organization administrator', () => {
+  const migration = readSource('supabase/migrations/20261203000000_admin_inactive_profile_visibility.sql');
+  const databaseTest = readSource('supabase/tests/database/active_profile_ownership.test.sql');
+  assert.match(migration, /organization_id = public\.current_profile_organization_id\(\)/);
+  assert.match(migration, /public\.current_profile_is_active\(\)/);
+  assert.match(migration, /public\.current_profile_role\(\) = 'organization_admin'/);
+  assert.match(migration, /is_active\s+AND public\.current_profile_role\(\) = 'district_manager'/);
+  assert.match(databaseTest, /active administrator can read an inactive member profile to restore access/);
+  assert.match(databaseTest, /Viewer cannot read an inactive profile even in the same district/);
+});
+
+test('screening edit controls match administrator and Enumerator ownership policies', () => {
+  const details = readSource('src/pages/StudentDetailsPage.tsx');
+  const registration = readSource('src/pages/StudentRegistrationPage.tsx');
+  const service = readSource('src/lib/dataService.ts');
+  const ownershipMigration = readSource('supabase/migrations/20261124000000_student_si_reservations.sql');
+  assert.match(details, /canEditStudentScreening\(user\?\.role, user\?\.id, student\)/);
+  assert.match(registration, /canEditStudentScreening\(user\.role, user\.id, existingStudent\)/);
+  assert.match(service, /created_by, owner_id/);
+  assert.match(ownershipMigration, /screenings_enumerator_update_own_assigned[\s\S]*created_by = auth\.uid\(\) OR owner_id = auth\.uid\(\)/);
+  assert.match(ownershipMigration, /public\.is_assigned_to_session\(session_id\)/);
 });

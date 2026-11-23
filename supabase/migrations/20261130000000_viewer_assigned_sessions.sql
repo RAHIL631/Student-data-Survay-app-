@@ -48,10 +48,7 @@ CREATE POLICY screenings_read_assigned_scope ON public.student_screenings
       public.current_profile_role() = 'organization_admin'
       OR (
         public.current_profile_role() = 'district_manager'
-        AND (
-          public.can_view_owner_data(owner_id)
-          OR (session_id IS NOT NULL AND public.can_view_assigned_session_for_viewer(session_id))
-        )
+        AND public.can_view_owner_data(owner_id)
       )
       OR (
         public.current_profile_role() = 'enumerator'
@@ -92,7 +89,13 @@ CREATE POLICY assignments_read_assigned_scope ON public.session_assignments
       OR enumerator_id = auth.uid()
       OR (
         public.current_profile_role() = 'district_manager'
-        AND public.can_view_assigned_session_for_viewer(session_id)
+        AND public.can_view_owner_data(session_assignments.enumerator_id)
+        AND EXISTS (
+          SELECT 1 FROM public.screening_sessions s
+          WHERE s.id = session_assignments.session_id
+            AND s.organization_id = session_assignments.organization_id
+            AND s.district_id = public.current_profile_district_id()
+        )
       )
     )
   );

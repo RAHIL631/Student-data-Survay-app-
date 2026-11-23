@@ -541,8 +541,12 @@ export type Database = {
         Args: { target_invitation_id: string };
         Returns: boolean;
       };
-      accept_user_invitation: {
+      verify_user_invitation_context: {
         Args: { target_invitation_id: string };
+        Returns: boolean;
+      };
+      accept_user_invitation: {
+        Args: { target_invitation_id: string; target_full_name: string };
         Returns: boolean;
       };
       set_profile_active: {
@@ -566,6 +570,16 @@ export type Database = {
           requested_student_id?: string | null;
         };
         Returns: string;
+      };
+      create_screening_session_secure: { Args: { target_input: Json }; Returns: string };
+      create_school_secure: { Args: { target_input: Json }; Returns: string };
+      create_student_screening_secure: {
+        Args: { target_student_id: string; target_input: Json; target_si_reservation_id?: string | null };
+        Returns: string;
+      };
+      update_student_screening_secure: {
+        Args: { target_student_id: string; target_input: Json; target_si_reservation_id?: string | null };
+        Returns: boolean;
       };
       cleanup_expired_student_si_reservations: {
         Args: Record<PropertyKey, never>;

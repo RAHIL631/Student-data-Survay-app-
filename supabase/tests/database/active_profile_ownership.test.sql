@@ -53,6 +53,11 @@ SELECT set_config('request.jwt.claim.sub', '81000000-0000-0000-0000-000000000001
 SELECT set_config('request.jwt.claims', '{"sub":"81000000-0000-0000-0000-000000000001","role":"authenticated"}', true);
 SET LOCAL ROLE authenticated;
 SELECT is(public.current_profile_is_active(), TRUE, 'active profile helper recognizes an active administrator');
+SELECT is(
+  (SELECT count(*)::INTEGER FROM public.profiles WHERE id = '81000000-0000-0000-0000-000000000005'),
+  1,
+  'active administrator can read an inactive member profile to restore access'
+);
 SELECT lives_ok(
   $$INSERT INTO public.schools (organization_id, district_id, taluk_id, name, code, status)
     VALUES ('82000000-0000-0000-0000-000000000001', '83000000-0000-0000-0000-000000000001', '84000000-0000-0000-0000-000000000001', 'New owned school', 'OWN-NEW', 'active')$$,
@@ -116,6 +121,16 @@ SELECT is(
 );
 
 UPDATE public.profiles SET is_active = FALSE WHERE id = '81000000-0000-0000-0000-000000000004';
+SELECT set_config('request.jwt.claim.sub', '81000000-0000-0000-0000-000000000002', true);
+SELECT set_config('request.jwt.claims', '{"sub":"81000000-0000-0000-0000-000000000002","role":"authenticated"}', true);
+SET LOCAL ROLE authenticated;
+SELECT is(
+  (SELECT count(*)::INTEGER FROM public.profiles WHERE id = '81000000-0000-0000-0000-000000000004'),
+  0,
+  'Viewer cannot read an inactive profile even in the same district'
+);
+RESET ROLE;
+
 SELECT set_config('request.jwt.claim.sub', '81000000-0000-0000-0000-000000000004', true);
 SELECT set_config('request.jwt.claims', '{"sub":"81000000-0000-0000-0000-000000000004","role":"authenticated"}', true);
 SET LOCAL ROLE authenticated;

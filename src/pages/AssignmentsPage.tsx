@@ -8,13 +8,27 @@ import { useRemoteData as useRemoteResource } from '../hooks/useRemoteData';
 export function AssignmentsPage() {
   const { user } = useAuth();
   const { data: assignments, isLoading, error, reload } = useRemoteData(getAssignments);
-  const { data: sessions } = useRemoteResource(getScreeningSessions);
-  const { data: enumerators } = useRemoteResource(getEnumerators);
+  const {
+    data: sessions,
+    isLoading: sessionsLoading,
+    error: sessionsError,
+    reload: reloadSessions,
+  } = useRemoteResource(getScreeningSessions);
+  const {
+    data: enumerators,
+    isLoading: enumeratorsLoading,
+    error: enumeratorsError,
+    reload: reloadEnumerators,
+  } = useRemoteResource(getEnumerators);
   const [form, setForm] = useState({ sessionId: '', enumeratorId: '' });
   const [saveError, setSaveError] = useState('');
   const [saving, setSaving] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
   const canManage = user?.role === 'organization_admin';
+  const selectedSession = sessions?.find((session) => session.id === form.sessionId);
+  const availableEnumerators = (enumerators ?? []).filter((enumerator) =>
+    selectedSession && enumerator.districtId === selectedSession.districtId,
+  );
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -54,6 +68,10 @@ export function AssignmentsPage() {
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-slate-900">Assignments</h2>
+      {(sessionsError || enumeratorsError) && <div role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">
+        Assignment options could not be loaded: {sessionsError ?? enumeratorsError}
+        <button type="button" onClick={() => { reloadSessions(); reloadEnumerators(); }} className="ml-2 underline">Retry</button>
+      </div>}
       {canManage && <form onSubmit={(event) => void handleSubmit(event)} className="card grid gap-4 md:grid-cols-[1fr_1fr_auto]">
         <label className="text-sm font-medium text-slate-700">Screening session
           <select required value={form.sessionId} onChange={(event) => setForm((current) => ({ ...current, sessionId: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
@@ -62,10 +80,10 @@ export function AssignmentsPage() {
         </label>
         <label className="text-sm font-medium text-slate-700">Enumerator
           <select required value={form.enumeratorId} onChange={(event) => setForm((current) => ({ ...current, enumeratorId: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-            <option value="">Select enumerator</option>{(enumerators ?? []).map((enumerator) => <option key={enumerator.id} value={enumerator.id}>{enumerator.name} · {enumerator.email}</option>)}
+            <option value="">Select enumerator</option>{availableEnumerators.map((enumerator) => <option key={enumerator.id} value={enumerator.id}>{enumerator.name} · {enumerator.email}</option>)}
           </select>
         </label>
-        <button disabled={saving || !sessions?.length || !enumerators?.length} className="self-end rounded-xl bg-cyan-600 px-4 py-2.5 font-medium text-white disabled:opacity-50">{saving ? 'Saving…' : 'Assign'}</button>
+        <button disabled={saving || sessionsLoading || enumeratorsLoading || Boolean(sessionsError) || Boolean(enumeratorsError) || !availableEnumerators.length} className="self-end rounded-xl bg-cyan-600 px-4 py-2.5 font-medium text-white disabled:opacity-50">{saving ? 'Saving…' : 'Assign'}</button>
       </form>}
       {error && <div role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">Assignments could not be loaded: {error} <button onClick={reload} className="ml-2 underline">Retry</button></div>}
       {isLoading && <p role="status" className="text-sm text-slate-500">Loading assignments…</p>}

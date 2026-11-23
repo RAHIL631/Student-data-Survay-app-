@@ -14,6 +14,7 @@ import {
 import { getLocalDateString } from '../lib/date';
 import { calculateAge, calculateBmi } from '../lib/permissions';
 import { isLocalTestSessionActive } from '../lib/localTestMode';
+import { canEditStudentScreening } from '../lib/roleAccess.js';
 import type { StudentRecord } from '../types';
 
 const initialForm = {
@@ -336,6 +337,15 @@ export function StudentRegistrationPage() {
           {studentError && <button onClick={reloadStudent} className="underline">Retry</button>}
           <button onClick={() => navigate('/students')} className="underline">Back to students</button>
         </div>
+      </div>
+    );
+  }
+
+  if (isEditing && user && !canEditStudentScreening(user.role, user.id, existingStudent)) {
+    return (
+      <div role="alert" className="space-y-3 rounded-xl bg-rose-50 p-4 text-sm text-rose-800">
+        <p>You can edit a screening only if you are an organization administrator or the Enumerator who created or owns it.</p>
+        <button type="button" onClick={() => navigate('/students')} className="font-medium underline">Back to students</button>
       </div>
     );
   }

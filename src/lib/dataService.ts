@@ -1,6 +1,6 @@
 import type { PostgrestError } from '@supabase/supabase-js';
 import type { AppUser, AuditLog, District, InvitationRole, School, ScreeningSession, StudentRecord, Taluk } from '../types';
-import type { Database } from './database.types';
+import type { Database, Json } from './database.types';
 import { requireSupabase } from './supabase';
 import { calculateStudentScreeningStatus } from './screeningStatus.js';
 import {
@@ -39,7 +39,46 @@ export type InvitationHistoryRecord = Pick<
 
 export type InvitationSubmissionResult =
   | { status: 'auth_request_accepted'; invitationId: string }
-  | { status: 'already_processing' | 'outcome_unknown' };
+  | { status: 'already_pending' | 'already_accepted' | 'already_processing' | 'outcome_unknown' | 'cancelled' | 'failed' | 'expired' };
+
+async function getInvitationErrorCode(error: unknown): Promise<string | undefined> {
+  if (!error || typeof error !== 'object' || !('context' in error)) return undefined;
+  const context = error.context;
+  if (!(context instanceof Response)) return undefined;
+  try {
+    const payload: unknown = await context.clone().json();
+    if (typeof payload === 'object' && payload !== null && 'code' in payload
+      && typeof payload.code === 'string') return payload.code;
+  } catch {
+    // Keep the user-facing message generic when the Edge Function response is not JSON.
+  }
+  return undefined;
+}
+
+function invitationErrorMessage(code: string | undefined): string {
+  switch (code) {
+    case 'invitation_conflict':
+      return 'This email has an existing account, active invitation, or conflicting invitation request. Check invitation history or ask an administrator to reconcile it.';
+    case 'not_authorized':
+      return 'Your account is not authorized to invite this role or district.';
+    case 'invalid_district':
+      return 'The selected district is unavailable for your organization. Refresh the district list and try again.';
+    case 'invalid_invitation_request':
+    case 'invalid_request':
+      return 'The invitation details are invalid. Check the email, role, and district, then try again.';
+    case 'auth_rejected':
+      return 'Supabase Auth rejected this invitation request. Check the recipient address and Auth configuration; no invitation was confirmed.';
+    case 'origin_not_allowed':
+      return 'This application URL is not allowed to send invitations. Ask an administrator to check the invitation configuration.';
+    case 'invitation_outcome_unknown':
+      return 'The invitation outcome could not be confirmed. Check invitation history before trying again.';
+    case 'service_unavailable':
+    case 'invitation_unavailable':
+      return 'The invitation service is temporarily unavailable. Check invitation history before trying again.';
+    default:
+      return 'The invitation request could not be completed. Check invitation history or contact an administrator.';
+  }
+}
 
 export class InactiveProfileError extends Error {
   constructor() {
@@ -249,7 +288,7 @@ export async function getStudentRecords(): Promise<StudentRecord[]> {
 
   for (let offset = 0; ; offset += pageSize) {
     const { data, error } = await client.from('student_screenings')
-      .select('id, session_id, si_number, student_name, class_name, section, sex, date_of_birth, age, height_cm, weight_kg, bmi, skeletal_deformity, skeletal_observation, skin_thickness_mm, mid_arm_circumference_cm, additional_remarks, district_id, taluk_id, school_id, screening_date, status')
+      .select('id, session_id, created_by, owner_id, si_number, student_name, class_name, section, sex, date_of_birth, age, height_cm, weight_kg, bmi, skeletal_deformity, skeletal_observation, skin_thickness_mm, mid_arm_circumference_cm, additional_remarks, district_id, taluk_id, school_id, screening_date, status')
       .order('screening_date', { ascending: false })
       .order('id', { ascending: false })
       .range(offset, offset + pageSize - 1);
@@ -259,6 +298,8 @@ export async function getStudentRecords(): Promise<StudentRecord[]> {
     students.push(...page.map((row) => ({
       id: row.id,
       sessionId: row.session_id,
+      createdBy: row.created_by,
+      ownerId: row.owner_id,
       siNumber: row.si_number,
       studentName: row.student_name,
       className: row.class_name,
@@ -440,16 +481,14 @@ export async function createUserInvitation(input: {
   });
 
   if (error) {
-    const status = error.context instanceof Response ? error.context.status : undefined;
-    if (status !== undefined && status >= 400 && status < 500) {
-      throw new Error('The invitation could not be created. Check your permissions and invitation history.');
-    }
-    throw new Error('The invitation outcome could not be confirmed. Check invitation history before trying again.');
+    throw new Error(invitationErrorMessage(await getInvitationErrorCode(error)));
   }
   if (data?.status === 'auth_request_accepted' && data.invitationId) {
     return { status: 'auth_request_accepted', invitationId: data.invitationId };
   }
-  if (data?.status === 'already_processing' || data?.status === 'outcome_unknown') {
+  if (data?.status === 'already_pending' || data?.status === 'already_accepted'
+    || data?.status === 'already_processing' || data?.status === 'outcome_unknown'
+    || data?.status === 'cancelled' || data?.status === 'failed' || data?.status === 'expired') {
     return { status: data.status };
   }
   throw new Error('The invitation outcome could not be confirmed. Check invitation history before trying again.');
@@ -540,17 +579,15 @@ export async function createScreeningSession(input: {
   screeningFacultyName: string;
   school: Pick<School, 'id' | 'districtId' | 'talukId'>;
 }): Promise<void> {
-  const { error } = await requireSupabase().from('screening_sessions').insert({
-    organization_id: input.organizationId,
-    name: input.name,
-    beo_name: input.beoName,
-    head_master_name: input.headMasterName,
-    screening_faculty_name: input.screeningFacultyName,
-    screening_date: input.date,
-    school_id: input.school.id,
-    district_id: input.school.districtId,
-    taluk_id: input.school.talukId,
-    status: 'active',
+  const { error } = await requireSupabase().rpc('create_screening_session_secure', {
+    target_input: {
+      name: input.name,
+      beo_name: input.beoName,
+      head_master_name: input.headMasterName,
+      screening_faculty_name: input.screeningFacultyName,
+      screening_date: input.date,
+      school_id: input.school.id,
+    } as Json,
   });
 
   throwIfError(error);
@@ -591,13 +628,13 @@ export async function createSchool(input: {
   name: string;
   code: string;
 }): Promise<void> {
-  const { error } = await requireSupabase().from('schools').insert({
-    organization_id: input.organizationId,
-    district_id: input.districtId,
-    taluk_id: input.talukId,
-    name: input.name.trim(),
-    code: input.code.trim(),
-    status: 'active',
+  const { error } = await requireSupabase().rpc('create_school_secure', {
+    target_input: {
+      district_id: input.districtId,
+      taluk_id: input.talukId,
+      name: input.name.trim(),
+      code: input.code.trim(),
+    } as Json,
   });
   throwIfError(error);
 }
@@ -672,12 +709,7 @@ export async function createStudentScreening(input: {
   }
 
   const payload = {
-    id: studentId,
-    organization_id: input.organizationId,
     session_id: input.sessionId,
-    district_id: student.districtId,
-    taluk_id: student.talukId,
-    school_id: student.schoolId,
     si_number: requestedSiNumber,
     student_name: student.studentName,
     class_name: student.className,
@@ -694,9 +726,12 @@ export async function createStudentScreening(input: {
     mid_arm_circumference_cm: student.midArmCircumferenceCm,
     additional_remarks: student.additionalRemarks,
     screening_date: student.screeningDate,
-    si_reservation_id: reservationId,
   };
-  const { error } = await client.from('student_screenings').insert(payload);
+  const { error } = await client.rpc('create_student_screening_secure', {
+    target_student_id: studentId,
+    target_input: payload as Json,
+    target_si_reservation_id: reservationId,
+  });
 
   if (!error) return;
   if (error.code === '23505') {
@@ -751,9 +786,9 @@ export async function updateStudentScreening(input: {
     reservationId = reserved;
   }
 
-  const { data, error } = await client
-    .from('student_screenings')
-    .update({
+  const { data, error } = await client.rpc('update_student_screening_secure', {
+    target_student_id: input.studentId,
+    target_input: {
       si_number: requestedSiNumber,
       student_name: input.student.studentName,
       class_name: input.student.className,
@@ -769,14 +804,12 @@ export async function updateStudentScreening(input: {
       skin_thickness_mm: input.student.skinThicknessMm,
       mid_arm_circumference_cm: input.student.midArmCircumferenceCm,
       additional_remarks: input.student.additionalRemarks,
-      si_reservation_id: reservationId,
-    })
-    .eq('id', input.studentId)
-    .select('id')
-    .maybeSingle();
+    } as Json,
+    target_si_reservation_id: reservationId,
+  });
 
   throwIfError(error);
-  if (!data) {
+  if (data !== true) {
     throw new Error('The screening record could not be updated in your authorized scope.');
   }
 }

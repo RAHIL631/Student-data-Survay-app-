@@ -11,7 +11,7 @@ export type AuthContextValue = {
   updatePassword: (password: string) => Promise<void>;
   finishPasswordRecovery: () => Promise<void>;
   loginAsLocalTestEnumerator: () => Promise<void>;
-  acceptInvitation: (invitationId: string, password: string) => Promise<void>;
+  acceptInvitation: (invitationId: string, fullName: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 };
 
