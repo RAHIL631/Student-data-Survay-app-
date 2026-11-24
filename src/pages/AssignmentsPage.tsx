@@ -1,111 +1,37 @@
-import { useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useRemoteData } from '../hooks/useRemoteData';
-import { assignEnumerator, getAssignments, getEnumerators, getScreeningSessions, unassignEnumerator } from '../lib/dataService';
+import { getAssignments } from '../lib/dataService';
 
 export function AssignmentsPage() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { data: assignments, isLoading, error, reload } = useRemoteData(getAssignments);
-  const { data: sessions } = useRemoteData(getScreeningSessions);
-  const { data: enumerators } = useRemoteData(getEnumerators);
-  const [form, setForm] = useState({ sessionId: '', enumeratorId: '' });
-  const [saveError, setSaveError] = useState('');
-  const [saving, setSaving] = useState(false);
   const canManage = user?.role === 'organization_admin';
-  const [removing, setRemoving] = useState<string | null>(null);
-
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!user) return;
-    setSaving(true);
-    setSaveError('');
-    try {
-      await assignEnumerator({ organizationId: user.organizationId, ...form });
-      setForm({ sessionId: '', enumeratorId: '' });
-      reload();
-    } catch (error) {
-      console.error('Unable to assign the enumerator to the screening session.', error);
-      setSaveError(error instanceof Error ? error.message : 'Unable to save the assignment.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleUnassign = async (sessionId: string, enumeratorId: string) => {
-    if (!window.confirm('Remove this enumerator assignment? The database records assignment removal in the audit log.')) {
-      return;
-    }
-
-    setRemoving(`${sessionId}:${enumeratorId}`);
-    setSaveError('');
-    try {
-      await unassignEnumerator({ sessionId, enumeratorId });
-      reload();
-    } catch (error) {
-      console.error('Unable to remove the enumerator assignment.', error);
-      setSaveError(error instanceof Error ? error.message : 'Unable to remove the assignment.');
-    } finally {
-      setRemoving(null);
-    }
-  };
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-slate-900">Assignments</h2>
-      {canManage && <form onSubmit={(event) => void handleSubmit(event)} className="card grid gap-4 md:grid-cols-[1fr_1fr_auto]">
-        <label className="text-sm font-medium text-slate-700">Screening session
-          <select required value={form.sessionId} onChange={(event) => {
-            const session = sessions?.find((item) => item.id === event.target.value);
-            setForm({ sessionId: event.target.value, enumeratorId: session?.ownerId ?? '' });
-          }} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-            <option value="">Select session</option>{(sessions ?? []).filter((session) => session.status === 'active').map((session) => <option key={session.id} value={session.id}>{session.name}</option>)}
-          </select>
-        </label>
-        <label className="text-sm font-medium text-slate-700">Screening Faculty
-          <select required value={form.enumeratorId} onChange={(event) => setForm((current) => ({ ...current, enumeratorId: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-            <option value="">Select the school’s Screening Faculty</option>{(enumerators ?? []).filter((enumerator) => enumerator.id === sessions?.find((session) => session.id === form.sessionId)?.ownerId).map((enumerator) => <option key={enumerator.id} value={enumerator.id}>{enumerator.name} · {enumerator.email}</option>)}
-          </select>
-        </label>
-        <button disabled={saving || !sessions?.length || !enumerators?.length || !form.enumeratorId || (assignments ?? []).find((item) => item.session.id === form.sessionId)?.enumerators.some((member) => member.id === form.enumeratorId)} className="self-end rounded-xl bg-cyan-600 px-4 py-2.5 font-medium text-white disabled:opacity-50">{saving ? 'Saving…' : 'Assign'}</button>
-      </form>}
+      <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-2xl font-bold text-slate-900">Assignments</h2>{canManage && <button type="button" onClick={() => navigate('/schools')} className="rounded-xl bg-cyan-700 px-4 py-2.5 font-semibold text-white hover:bg-cyan-800">Manage school faculty</button>}</div>
+      <p className="rounded-xl bg-cyan-50 p-4 text-sm text-cyan-950">Each screening session belongs to the active Screening Faculty assigned to its school. To change a session’s faculty, update the school assignment; the database applies the same rule when a session is created.</p>
       {error && <div role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">Assignments could not be loaded: {error} <button onClick={reload} className="ml-2 underline">Retry</button></div>}
       {isLoading && <p role="status" className="text-sm text-slate-500">Loading assignments…</p>}
-      {!isLoading && !error && assignments?.length === 0 && <p className="text-sm text-slate-500">No screening sessions or assignments are available.</p>}
+      {!isLoading && !error && assignments?.length === 0 && <p className="text-sm text-slate-500">No screening sessions are available. Create a session after assigning an active Screening Faculty account to a school.</p>}
       {!error && (assignments?.length ?? 0) > 0 && (
         <div className="table-shell">
           <table>
-            <thead><tr><th>Session</th><th>Assigned enumerators</th><th>Status</th>{canManage && <th>Actions</th>}</tr></thead>
+            <thead><tr><th>Session</th><th>Assigned enumerators</th><th>Status</th></tr></thead>
             <tbody>
               {(assignments ?? []).map(({ session, enumerators }) => (
                 <tr key={session.id}>
                   <td>{session.name}</td>
                   <td>{enumerators.map((enumerator) => enumerator.name).join(', ') || 'No Screening Faculty assigned'}</td>
                   <td><span className="badge bg-emerald-100 text-emerald-700">{session.status}</span></td>
-                  {canManage && (
-                    <td>
-                      <ul className="space-y-1">
-                        {enumerators.map((enumerator) => (
-                          <li key={enumerator.id}>
-                            <button
-                              type="button"
-                              disabled={removing === `${session.id}:${enumerator.id}`}
-                              onClick={() => void handleUnassign(session.id, enumerator.id)}
-                              className="text-sm font-medium text-rose-700 underline disabled:opacity-50"
-                            >
-                              {removing === `${session.id}:${enumerator.id}` ? 'Removing…' : `Remove ${enumerator.name}`}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    </td>
-                  )}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-      {saveError && <p role="alert" className="text-sm text-rose-700">{saveError}</p>}
     </div>
   );
 }

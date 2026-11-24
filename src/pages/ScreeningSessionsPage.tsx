@@ -19,7 +19,6 @@ export function ScreeningSessionsPage() {
     schoolId: '',
     beoName: '',
     headMasterName: '',
-    screeningFacultyName: '',
   });
   const [saveError, setSaveError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -37,6 +36,8 @@ export function ScreeningSessionsPage() {
   const selectedSchoolFaculty = selectedSchool
     ? activeFaculty.find((member) => member.id === selectedSchool.ownerId)
     : undefined;
+  const screeningFacultyName = selectedSchoolFaculty?.name
+    ?? (selectedSchool?.ownerId === user?.id ? user?.name ?? '' : '');
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -55,10 +56,10 @@ export function ScreeningSessionsPage() {
         date: form.date,
         beoName: form.beoName.trim(),
         headMasterName: form.headMasterName.trim(),
-        screeningFacultyName: form.screeningFacultyName.trim(),
+        screeningFacultyName: screeningFacultyName.trim(),
         school,
       });
-      setForm({ name: '', date: getLocalDateString(), schoolId: '', beoName: '', headMasterName: '', screeningFacultyName: '' });
+      setForm({ name: '', date: getLocalDateString(), schoolId: '', beoName: '', headMasterName: '' });
       setShowForm(false);
       reload();
     } catch (error) {
@@ -106,7 +107,7 @@ export function ScreeningSessionsPage() {
               <input required value={form.headMasterName} onChange={(event) => setForm((current) => ({ ...current, headMasterName: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" />
             </label>
             <label className="text-sm font-medium text-slate-700">Screening Faculty
-              <input required value={form.screeningFacultyName} onChange={(event) => setForm((current) => ({ ...current, screeningFacultyName: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" />
+              <input required readOnly value={screeningFacultyName} placeholder="Assigned from the selected school" className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2.5 text-slate-600" />
             </label>
           </div>
           {schoolChoices.length === 0 && <p role="status" className="text-sm text-amber-800">{schools?.length ? 'No active schools are available in your account scope.' : 'Add an active school before creating a session.'}</p>}
