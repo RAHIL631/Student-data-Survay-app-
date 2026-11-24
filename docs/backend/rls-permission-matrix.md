@@ -1,32 +1,31 @@
 # RLS and permission matrix
 
-This matrix describes the final **local** schema after all migrations. Every public application table has RLS enabled. Hosted Supabase still needs the seven reviewed forward migrations before this matrix describes production.
+This matrix describes the authorization implemented by the source migrations at commit `db3d523` on `integration`. It describes the repository source, not proof of the currently deployed Supabase schema. The project owner has reported six production migrations applied; confirm the exact versions in Supabase migration history before relying on this matrix for production access.
 
-| Table | `anon` | Organization admin | District manager | Enumerator |
+`district_manager` is shown in the interface as **Viewer**. It is a read-only role. Access is limited to the manager's organization and, where applicable, district and owner grants.
+
+| Resource | Anonymous | Organization admin | Viewer (`district_manager`) | Enumerator |
 | --- | --- | --- | --- | --- |
-| `organizations` | none | SELECT own organization | SELECT own organization | SELECT own organization |
-| `profiles` | none | SELECT active same-organization profiles; update allowed profile fields | SELECT self and active same-district profiles; no writes | SELECT self only; no writes |
-| `districts`, `taluks` | none | organization-scoped SELECT/INSERT/UPDATE/DELETE | own district SELECT | own district and required assigned-session location SELECT |
-| `schools` | none | organization-scoped CRUD | own district-scoped CRUD | own/assigned-session location SELECT |
-| `screening_sessions` | none | organization-scoped SELECT/INSERT/UPDATE | own district SELECT/INSERT/UPDATE | assigned-session SELECT |
-| `session_assignments` | none | organization-scoped SELECT/INSERT/DELETE | own district SELECT/INSERT/DELETE | own assignment SELECT only |
-| `student_screenings` | none | organization-scoped SELECT/INSERT/UPDATE | own district SELECT/INSERT/UPDATE | assigned-session SELECT/INSERT and own-created/owned UPDATE while assigned |
-| `student_si_reservations` | none | no direct table access; authorized RPC only | no direct table access; authorized RPC only | no direct table access; authorized RPC only |
-| `audit_logs` | none | organization SELECT | same-district known-scope SELECT | none |
-| `user_invitations` | none | approved history columns; invite/cancel through RPC + Edge Function | same-district history; invite/cancel enumerators within district | none |
-| Legacy `students`, when present | none | none | none | none |
+| Organizations | None | Read own organization | Read own organization | Read own organization |
+| Profiles | None | Read organization profiles, including inactive members for recovery; activate/deactivate other members through the authorized RPC | Read self and active same-district profiles within owner grants; no writes | Read self only; no writes |
+| Districts and taluks | None | Organization-scoped CRUD under RLS | Read own district and locations within owner grants | Read own district and locations needed for assigned sessions |
+| Schools | None | Organization-scoped CRUD; writes use the secure RPC | Read own district and owner-granted rows; no writes | Read own district and assigned-session locations |
+| Screening sessions | None | Organization-scoped read/write; protected writes use secure RPCs | Read owner-granted sessions and same-district assigned sessions; no writes | Read assigned sessions only |
+| Session assignments | None | Organization-scoped read/write | Read only rows allowed by district and owner grants; no writes | Read own assignments only |
+| Student screenings | None | Organization-scoped read; protected writes use secure RPCs | Read only records allowed by owner grants; no writes | Read assigned-session records; update only own-created/owned records while assigned |
+| SI reservations | None | No direct table access; authorized RPCs only | No direct table access; authorized RPCs only | No direct table access; authorized RPCs only |
+| Audit logs | None | Read organization audit history | None | None |
+| User invitations | None | Read organization history; invite/cancel through authorized function/RPC | Read same-district invitation history only; cannot invite or cancel | None |
+| Legacy `students` table, if present | None | Deny by default | Deny by default | Deny by default |
 
 ## Safeguards
 
-- Active profile helper functions return no effective role or scope for inactive users. The only inactive-profile data available to the user is their own activation flag, needed for a clear sign-out message.
-- Client writes cannot supply or change creator/owner metadata. Table privileges are column-limited; RLS independently enforces scope.
-- An active organization administrator can activate/deactivate other organization profiles through `set_profile_active`; the RPC denies self-change and emits an audit row. There is no direct client `is_active` update grant.
-- `transfer_record_ownership` accepts only supported records and checks active actor, target, organization, district, and assignment scope before changing owner and writing an audit row.
-- Session assignment triggers require an active enumerator, matching organization, and exactly matching district. Managers also require their own district. The migration aborts before creating the constraint if existing rows violate it.
-- SI reservation RPC checks active actor, role, assignment/session scope, uniqueness, and idempotency. The reservation table is inaccessible directly; authenticated SI changes are accepted only when a matching reservation is consumed by the trigger.
-- Invitation state writes are narrow RPCs. Auth user invitation is performed by the server-side `invite-user` Edge Function, which validates the caller's JWT. The Supabase service-role key belongs only in Edge Function secrets.
-- Auth recovery and invitation URLs are Supabase Auth configuration requirements; they are not database privileges.
+- Inactive profiles do not receive an effective role or data scope. An active organization admin can restore another organization member through `set_profile_active`; self-activation changes are denied and the action is audited.
+- The invitation request RPC is restricted to an active organization admin. Viewers cannot invite or cancel enumerators.
+- Client-supplied creator and owner metadata is not trusted. Database policies, column grants, triggers, and secure write RPCs enforce attribution and scope.
+- SI reservation records are not directly accessible to client roles. Reservation and consumption use authorization-checked RPC and trigger paths.
+- Public invitation preflight is identity-bound and read-only. Acceptance changes the invitation to accepted only after the matching profile is created.
 
-## Reviewed test coverage
+## Production verification
 
-Local pgTAP tests cover account status and ownership changes, active-enumerator assignments, same-district assignment scope, organization/district RLS, creator-field protection, invitation transitions, legacy-table denial, profile update grants, screening completeness, expired SI reservation reassignment, and public-role table privileges. Current result: 236 assertions across 9 files pass locally.
+The exact production migration versions and live role behavior must be checked in the Supabase project. Do not apply migrations from this document or change production policies as a substitute for that check. Test each role with real accounts and verify denied operations as well as allowed reads and writes.

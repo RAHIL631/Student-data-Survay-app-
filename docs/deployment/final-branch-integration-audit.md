@@ -1,5 +1,7 @@
 # Final branch integration audit
 
+> Historical snapshot: this audit records the state reviewed before commit `db3d523` on `integration` and is not a current deployment report. The repository now contains later invitation, access-control, and secure-write changes. Use the current source migrations and deployment records when assessing present state; do not treat this document's production status as current.
+
 **Audit date:** 2026-11-22
 **Repository:** `RAHIL631/Student-data-Survay-app-`
 **Target:** `friend/integration`

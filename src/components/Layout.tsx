@@ -42,8 +42,7 @@ export function AppLayout() {
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
       {sidebarVisible && <button type="button" aria-label="Close navigation menu" onClick={() => setSidebarVisible(false)} className="fixed inset-0 z-20 bg-slate-950/50 md:hidden" />}
-      {sidebarVisible && (
-      <aside id="app-navigation" className="fixed inset-y-0 left-0 z-30 flex w-72 max-w-[85vw] flex-col border-r border-slate-200 bg-slate-950 text-slate-100">
+      <aside id="app-navigation" hidden={!sidebarVisible} className="fixed inset-y-0 left-0 z-30 flex w-72 max-w-[85vw] flex-col border-r border-slate-200 bg-slate-950 text-slate-100">
         <div className="flex items-center gap-3 border-b border-slate-800 px-6 py-5">
           <div className="rounded-xl bg-cyan-500/20 p-2 text-cyan-300"><ShieldCheck size={18} /></div>
           <div>
@@ -88,7 +87,6 @@ export function AppLayout() {
           {logoutError && <p role="alert" className="mt-2 text-xs text-rose-300">{logoutError}</p>}
         </div>
       </aside>
-      )}
 
       <main className={`${sidebarVisible ? 'md:ml-72' : 'ml-0'} min-h-screen min-w-0 p-3 pb-20 transition-[margin] duration-200 sm:p-5 md:pb-5 md:p-8`}>
         <div className="min-h-[calc(100vh-1.5rem)] min-w-0 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 sm:p-6 md:min-h-[calc(100vh-4rem)]">

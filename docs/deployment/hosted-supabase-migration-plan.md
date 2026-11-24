@@ -1,5 +1,7 @@
 # Hosted Supabase migration and data-transfer plan
 
+> **Status update for source commit `db3d523` on `integration`:** This document records a 2026-11-22 migration plan and its historical observations. The project owner has since reported that six production migrations and the invitation RPC permission checks were successfully applied/verified. The exact production migration IDs were not provided in this report, so this historical plan is not an authoritative production migration ledger. Check the target project's migration history before deploying or applying any SQL. A real invitation acceptance test and full frontend/backend workflows remain unverified.
+
 ## Current state and boundary
 
 The intended hosted project is `qghesdscscclbfevbypb` at `https://qghesdscscclbfevbypb.supabase.co`. On 2026-11-22, its 11-migration baseline was backed up, verified by restoring into an isolated PostgreSQL 17 instance, and extended with the seven migrations listed below. The Vercel project/production branch could not be verified from this session; the public deployment URL remains the existing WhatsApp link.

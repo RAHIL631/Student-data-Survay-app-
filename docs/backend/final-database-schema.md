@@ -1,6 +1,6 @@
-# Final local database schema
+# Database schema in the integration source
 
-This describes the schema after applying the complete local `integration` migration chain in filename order. The hosted project remains on its previously inspected 11 migration baseline; this is not a claim that hosted Supabase has these later changes. The latest local migration is `20261128000000_fix_si_reservation_parameter_ambiguity.sql`.
+This describes the schema after applying the complete `integration` migration chain present at commit `db3d523` in filename order. The repository includes migrations through `20261204000000_secure_authenticated_write_rpcs.sql`, following `20261128000000_fix_si_reservation_parameter_ambiguity.sql`. This source history does not prove which migrations are applied in the hosted Supabase project. The project owner has reported six production migrations applied; verify exact migration IDs in the project's migration history before treating production as aligned. Do not apply these migrations blindly or infer production state from this document.
 
 ## Tables and scope
 
