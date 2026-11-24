@@ -277,10 +277,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         const { data, error } = await supabase.rpc('accept_user_invitation', {
           target_invitation_id: invitationId,
-          requested_full_name: fullName.trim(),
+          target_full_name: fullName.trim(),
         });
-        if (error || data !== true) {
-          throw new Error('This invitation cannot be accepted. It may have been cancelled or already used.');
+        if (error) {
+          console.error('Invitation acceptance RPC failed.', { code: error.code });
+          if (error.code === '42501') {
+            throw new Error('Your password was updated, but the invitation could not be accepted for this account. It may no longer be pending. Do not request another invitation; ask an administrator to check the existing invitation.');
+          }
+          throw new Error('Your password was updated, but invitation acceptance could not be confirmed. Do not request another invitation; ask an administrator to check the existing invitation before retrying.');
+        }
+        if (data !== true) {
+          throw new Error('Your password was updated, but invitation acceptance could not be confirmed. Do not request another invitation; ask an administrator to check the existing invitation before retrying.');
         }
 
         const profile = await getProfile(session.user.id);
