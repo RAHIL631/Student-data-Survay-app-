@@ -519,7 +519,7 @@ export type Database = {
         Returns: boolean;
       };
       accept_user_invitation: {
-        Args: { target_invitation_id: string; requested_full_name: string };
+        Args: { target_invitation_id: string; target_full_name: string };
         Returns: boolean;
       };
     };
