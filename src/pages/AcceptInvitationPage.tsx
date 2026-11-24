@@ -12,6 +12,7 @@ export function AcceptInvitationPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
+  const [acceptedForApproval, setAcceptedForApproval] = useState(false);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -32,8 +33,12 @@ export function AcceptInvitationPage() {
 
     setIsSaving(true);
     try {
-      await acceptInvitation(invitationId, password, fullName);
-      navigate('/dashboard', { replace: true });
+      const result = await acceptInvitation(invitationId, password, fullName);
+      if (result === 'pending_approval') {
+        setAcceptedForApproval(true);
+      } else {
+        navigate('/dashboard', { replace: true });
+      }
     } catch (acceptError: unknown) {
       setError(acceptError instanceof Error ? acceptError.message : 'The invitation could not be accepted.');
     } finally {
@@ -46,7 +51,8 @@ export function AcceptInvitationPage() {
       <section className="w-full max-w-lg rounded-2xl bg-white p-8 shadow-sm ring-1 ring-slate-200">
         <h1 className="text-2xl font-bold text-slate-900">Accept your invitation</h1>
         {isLoading && <p role="status" className="mt-3 text-sm text-slate-600">Verifying your invitation…</p>}
-        {!isLoading && invitationId && (
+        {acceptedForApproval && <div role="status" className="mt-5 space-y-4"><p className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900">Your account is set up and waiting for administrator approval. You’ll be able to sign in after approval.</p><Link to="/login" className="inline-flex min-h-11 items-center rounded-xl bg-cyan-700 px-4 py-2.5 font-semibold text-white">Return to sign in</Link></div>}
+        {!isLoading && !acceptedForApproval && invitationId && (
           <form onSubmit={(event) => void handleSubmit(event)} className="mt-5 space-y-4">
             <p className="text-sm text-slate-600">Choose a password to finish setting up your account.</p>
             <label className="block text-sm font-medium text-slate-700">
@@ -91,7 +97,7 @@ export function AcceptInvitationPage() {
             </button>
           </form>
         )}
-        {!isLoading && !invitationId && (
+        {!isLoading && !acceptedForApproval && !invitationId && (
           <p role="alert" className="mt-4 rounded-xl bg-rose-50 p-4 text-sm text-rose-800">
             The invitation link is missing its invitation reference.
           </p>

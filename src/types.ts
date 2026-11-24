@@ -10,6 +10,7 @@ export type AppUser = {
   email: string;
   role: Role;
   isActive?: boolean;
+  approvalStatus?: 'pending' | 'approved';
   districtId?: string;
   schoolIds?: string[];
 };

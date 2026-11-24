@@ -1,10 +1,12 @@
 import { useState, type FormEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { assignSchoolOwner, getDistricts, getOrganizationUsers, getSchools, getTaluks } from '../lib/dataService';
 import { useRemoteData } from '../hooks/useRemoteData';
 import { createSchool } from '../lib/dataService';
 
 export function SchoolsPage() {
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const { data: schools, isLoading, error, reload } = useRemoteData(getSchools);
   const { data: districts, error: districtsError } = useRemoteData(getDistricts);
@@ -18,8 +20,14 @@ export function SchoolsPage() {
   const [ownerSelections, setOwnerSelections] = useState<Record<string, string>>({});
   const canManage = user?.role === 'organization_admin';
   const canCreateSchool = canManage || user?.role === 'enumerator';
+  const requestedFacultyId = searchParams.get('facultyId') ?? '';
   const availableTaluks = (taluks ?? []).filter((taluk) => taluk.districtId === form.districtId);
   const screeningFaculty = (users ?? []).filter((member) => member.role === 'enumerator' && member.isActive);
+  const requestedFaculty = screeningFaculty.find((member) => member.id === requestedFacultyId);
+
+  const selectedOwnerId = (schoolId: string, currentOwnerId: string) =>
+    ownerSelections[schoolId]
+      ?? (requestedFaculty ? requestedFaculty.id : screeningFaculty.some((member) => member.id === currentOwnerId) ? currentOwnerId : '');
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -39,7 +47,8 @@ export function SchoolsPage() {
   };
 
   const handleOwnerChange = async (schoolId: string) => {
-    const ownerId = ownerSelections[schoolId];
+    const school = schools?.find((item) => item.id === schoolId);
+    const ownerId = school ? selectedOwnerId(schoolId, school.ownerId) : '';
     if (!ownerId) return;
 
     setSavingSchoolId(schoolId);
@@ -58,6 +67,7 @@ export function SchoolsPage() {
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-slate-900">Schools</h2>
+      {requestedFaculty && <p role="status" className="rounded-xl bg-cyan-50 p-4 text-sm text-cyan-950">Choose a school below to assign it to {requestedFaculty.name}, then press Assign. This faculty account is now active and can receive sessions.</p>}
       {(districtsError || taluksError) && <div role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">Location data could not be loaded: {districtsError ?? taluksError}</div>}
       {error && <div role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">Schools could not be loaded: {error} <button onClick={reload} className="ml-2 underline">Retry</button></div>}
       {usersError && canManage && <div role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">Staff accounts could not be loaded: {usersError} <button onClick={reloadUsers} className="ml-2 underline">Retry</button></div>}
@@ -94,7 +104,7 @@ export function SchoolsPage() {
                 <label className="sr-only" htmlFor={`school-owner-${school.id}`}>Assign screening faculty for {school.name}</label>
                 <select
                   id={`school-owner-${school.id}`}
-                  value={ownerSelections[school.id] ?? (screeningFaculty.some((member) => member.id === school.ownerId) ? school.ownerId : '')}
+                  value={selectedOwnerId(school.id, school.ownerId)}
                   onChange={(event) => setOwnerSelections((current) => ({ ...current, [school.id]: event.target.value }))}
                   className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
                   disabled={!screeningFaculty.length || Boolean(usersError)}
@@ -105,7 +115,7 @@ export function SchoolsPage() {
                 <button
                   type="button"
                   onClick={() => void handleOwnerChange(school.id)}
-                  disabled={savingSchoolId === school.id || !(ownerSelections[school.id] ?? (screeningFaculty.some((member) => member.id === school.ownerId) ? school.ownerId : '')) || Boolean(usersError)}
+                  disabled={savingSchoolId === school.id || !selectedOwnerId(school.id, school.ownerId) || Boolean(usersError)}
                   className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
                 >
                   {savingSchoolId === school.id ? 'Saving…' : 'Assign'}

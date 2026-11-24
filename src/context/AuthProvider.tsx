@@ -189,7 +189,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           throw new Error('Email or password is incorrect, or this account is unavailable.');
         }
 
-        const profile = await getProfile(data.user.id);
+        let profile: Awaited<ReturnType<typeof getProfile>>;
+        try {
+          profile = await getProfile(data.user.id);
+        } catch (profileError) {
+          explicitLogout.current = true;
+          try {
+            const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' });
+            if (signOutError) {
+              console.error('Unable to close an unapproved account session.', signOutError.message);
+            }
+          } catch (signOutError) {
+            console.error('Unable to close an unapproved account session.', signOutError);
+          } finally {
+            explicitLogout.current = false;
+            setUser(null);
+            setAuthError(null);
+          }
+          throw profileError;
+        }
         setUser(profile);
         setAuthError(null);
         return profile;
@@ -286,14 +304,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
           throw new Error('Your password was updated, but invitation acceptance could not be confirmed. Do not request another invitation; ask an administrator to check the existing invitation before retrying.');
         }
-        if (data !== true) {
+        if (data !== 'pending_approval' && data !== 'approved') {
           throw new Error('Your password was updated, but invitation acceptance could not be confirmed. Do not request another invitation; ask an administrator to check the existing invitation before retrying.');
+        }
+
+        if (data === 'pending_approval') {
+          explicitLogout.current = true;
+          const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' });
+          if (signOutError) {
+            explicitLogout.current = false;
+            throw new Error('Your account was set up, but this invitation session could not be closed. Sign out, then wait for administrator approval before signing in.');
+          }
+          profileLoadId.current += 1;
+          setUser(null);
+          setAuthError(null);
+          setIsLoading(false);
+          return data;
         }
 
         const profile = await getProfile(session.user.id);
         profileLoadId.current += 1;
         setUser(profile);
         setAuthError(null);
+        return data;
       },
       logout: async () => {
         if (!supabase) {

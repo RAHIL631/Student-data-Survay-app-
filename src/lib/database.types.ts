@@ -33,6 +33,7 @@ type ProfileRow = {
   role: 'organization_admin' | 'district_manager' | 'enumerator';
   district_id: string | null;
   is_active: boolean;
+  approval_status: 'pending' | 'approved';
   created_at: string;
   updated_at: string;
 };
@@ -192,11 +193,15 @@ type ProfileInsert = {
   full_name?: string;
   role: ProfileRow['role'];
   district_id?: string | null;
+  is_active?: boolean;
+  approval_status?: ProfileRow['approval_status'];
   created_at?: string;
   updated_at?: string;
 };
 type ProfileUpdate = {
   full_name?: string;
+  is_active?: boolean;
+  approval_status?: ProfileRow['approval_status'];
 };
 type DistrictInsert = {
   id?: string;
@@ -520,7 +525,7 @@ export type Database = {
       };
       accept_user_invitation: {
         Args: { target_invitation_id: string; target_full_name: string };
-        Returns: boolean;
+        Returns: 'pending_approval' | 'approved';
       };
     };
     Enums: Record<string, never>;

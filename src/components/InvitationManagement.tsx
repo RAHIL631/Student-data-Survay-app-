@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useRemoteData } from '../hooks/useRemoteData';
 import {
@@ -7,11 +8,11 @@ import {
   getDistricts,
   getUserInvitations,
 } from '../lib/dataService';
-import type { InvitationRole } from '../types';
+import type { AppUser, InvitationRole } from '../types';
 
 function describeInvitation(status: string, authStatus: string): string {
   if (status === 'cancelled') return 'Cancelled — acceptance is blocked, though an already-sent Auth link may still open.';
-  if (status === 'accepted') return 'Accepted and profile provisioned.';
+  if (status === 'accepted') return 'Invitation accepted and profile provisioned. Check Organization users for current approval status.';
   if (status === 'failed') return 'Auth rejected the request; no profile was provisioned.';
   if (status === 'expired') return 'Expired by an authorized process.';
   if (authStatus === 'accepted_by_auth') return 'Auth accepted the invite request; email delivery is not verified.';
@@ -20,7 +21,11 @@ function describeInvitation(status: string, authStatus: string): string {
   return 'Invitation request has not been confirmed by Auth.';
 }
 
-export function InvitationManagement() {
+export function InvitationManagement({ users, onApprove }: {
+  users: AppUser[];
+  onApprove: (userId: string) => Promise<void>;
+}) {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { data: districts, isLoading: districtsLoading, error: districtsError } = useRemoteData(getDistricts);
   const { data: invitations, isLoading, error, reload } = useRemoteData(getUserInvitations);
@@ -30,6 +35,7 @@ export function InvitationManagement() {
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [saving, setSaving] = useState(false);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [saveError, setSaveError] = useState('');
   const isOrganizationAdmin = user?.role === 'organization_admin';
@@ -100,7 +106,7 @@ export function InvitationManagement() {
       <div>
         <h3 className="text-lg font-semibold text-slate-900">User invitations</h3>
         <p className="mt-1 text-sm text-slate-600">
-          Resending is not available. Auth acceptance and inbox delivery are tracked separately.
+          Resending is not available. After an Enumerator accepts the link and sets a password, approve the account in Organization users, then assign a school. Auth request acceptance does not confirm inbox delivery.
         </p>
       </div>
 
@@ -197,6 +203,12 @@ export function InvitationManagement() {
                 const canCancel = invitation.status === 'provisioning'
                   || invitation.status === 'pending';
                 const roleAllowed = isOrganizationAdmin || invitation.role === 'enumerator';
+                const staff = users.find((member) => member.email.toLowerCase() === invitation.email.toLowerCase());
+                const waitingForApproval = invitation.status === 'accepted' && staff?.approvalStatus === 'pending';
+                const canAssignSchool = invitation.status === 'accepted'
+                  && staff?.role === 'enumerator'
+                  && staff.isActive
+                  && staff.approvalStatus === 'approved';
                 return (
                   <tr key={invitation.id}>
                     <td>{invitation.email}</td>
@@ -204,7 +216,25 @@ export function InvitationManagement() {
                     <td>{describeInvitation(invitation.status, invitation.auth_status)}</td>
                     <td>{new Date(invitation.created_at).toLocaleString()}</td>
                     <td>
-                      {canCancel && roleAllowed && (
+                      {waitingForApproval && staff && <button
+                        type="button"
+                        disabled={approvingId === staff.id}
+                        onClick={async () => {
+                          setApprovingId(staff.id);
+                          try {
+                            await onApprove(staff.id);
+                          } finally {
+                            setApprovingId(null);
+                          }
+                        }}
+                        className="font-semibold text-emerald-700 underline disabled:opacity-50"
+                      >{approvingId === staff.id ? 'Approving…' : 'Approve account'}</button>}
+                      {canAssignSchool && staff && <button
+                        type="button"
+                        onClick={() => navigate(`/schools?facultyId=${encodeURIComponent(staff.id)}`)}
+                        className="font-semibold text-cyan-800 underline"
+                      >Assign school</button>}
+                      {!waitingForApproval && !canAssignSchool && canCancel && roleAllowed && (
                         <button
                           type="button"
                           disabled={cancellingId === invitation.id}

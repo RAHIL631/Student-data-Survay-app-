@@ -16,6 +16,7 @@ const localUsers: Record<Role, AppUser> = {
     email: 'admin@local.test',
     role: 'organization_admin',
     isActive: true,
+    approvalStatus: 'approved',
   },
   district_manager: {
     id: 'local-test-manager',
@@ -24,6 +25,7 @@ const localUsers: Record<Role, AppUser> = {
     email: 'manager@local.test',
     role: 'district_manager',
     isActive: true,
+    approvalStatus: 'approved',
     districtId: 'local-test-district',
   },
   enumerator: {
@@ -33,6 +35,7 @@ const localUsers: Record<Role, AppUser> = {
     email: 'enumerator@local.test',
     role: 'enumerator',
     isActive: true,
+    approvalStatus: 'approved',
     districtId: 'local-test-district',
   },
 };

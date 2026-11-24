@@ -10,7 +10,7 @@ export type AuthContextValue = {
   requestPasswordReset: (email: string) => Promise<void>;
   updatePassword: (password: string) => Promise<void>;
   finishPasswordRecovery: () => Promise<void>;
-  acceptInvitation: (invitationId: string, password: string, fullName: string) => Promise<void>;
+  acceptInvitation: (invitationId: string, password: string, fullName: string) => Promise<'pending_approval' | 'approved'>;
   loginAsLocalTestUser: (role: Role) => Promise<AppUser>;
   logout: () => Promise<void>;
 };

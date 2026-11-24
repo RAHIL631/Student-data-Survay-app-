@@ -48,13 +48,16 @@ export async function getProfile(userId: string): Promise<AppUser> {
 
   const { data, error } = await requireSupabase()
     .from('profiles')
-    .select('id, organization_id, email, full_name, role, district_id, is_active')
+    .select('id, organization_id, email, full_name, role, district_id, is_active, approval_status')
     .eq('id', userId)
     .maybeSingle();
 
   throwIfError(error);
   if (!data) {
     throw new Error('Your account is authenticated but has no organization profile. Ask an organization administrator to provision your profile.');
+  }
+  if (data.approval_status === 'pending') {
+    throw new Error('Your account is waiting for administrator approval. You will be able to sign in after it is approved.');
   }
   if (!data.is_active) {
     throw new Error('This account is inactive. Contact an administrator for access.');
@@ -67,6 +70,7 @@ export async function getProfile(userId: string): Promise<AppUser> {
     name: data.full_name,
     role: data.role,
     isActive: data.is_active,
+    approvalStatus: data.approval_status,
     districtId: data.district_id ?? undefined,
   };
 }
@@ -276,7 +280,7 @@ export async function getEnumerators(): Promise<AppUser[]> {
 
   const { data, error } = await requireSupabase()
     .from('profiles')
-    .select('id, organization_id, email, full_name, role, district_id, is_active')
+    .select('id, organization_id, email, full_name, role, district_id, is_active, approval_status')
     .eq('role', 'enumerator')
     .eq('is_active', true)
     .order('full_name');
@@ -289,6 +293,7 @@ export async function getEnumerators(): Promise<AppUser[]> {
     name: row.full_name,
     role: row.role,
     isActive: row.is_active,
+    approvalStatus: row.approval_status,
     districtId: row.district_id ?? undefined,
   }));
 }
@@ -300,7 +305,7 @@ export async function getOrganizationUsers(): Promise<AppUser[]> {
 
   const { data, error } = await requireSupabase()
     .from('profiles')
-    .select('id, organization_id, email, full_name, role, district_id, is_active')
+    .select('id, organization_id, email, full_name, role, district_id, is_active, approval_status')
     .order('full_name');
   throwIfError(error);
   return (data ?? []).map((row) => ({
@@ -310,6 +315,7 @@ export async function getOrganizationUsers(): Promise<AppUser[]> {
     name: row.full_name,
     role: row.role,
     isActive: row.is_active,
+    approvalStatus: row.approval_status,
     districtId: row.district_id ?? undefined,
   }));
 }
@@ -341,7 +347,7 @@ export async function setOwnerDataGrant(viewerId: string, ownerId: string, shoul
 
 export async function manageOrganizationUser(input: {
   userId: string;
-  action: 'reset_password' | 'deactivate' | 'reactivate';
+  action: 'reset_password' | 'deactivate' | 'reactivate' | 'approve';
 }): Promise<{ warning?: string }> {
   if (isLocalTestSessionActive()) {
     throw new Error('Account management is not available in local test mode.');

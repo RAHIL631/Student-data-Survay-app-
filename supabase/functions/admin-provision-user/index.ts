@@ -88,7 +88,7 @@ Deno.serve(async (request) => {
     targetUserId?: unknown;
   };
   const action = input.action;
-  if (action !== 'reset_password' && action !== 'deactivate' && action !== 'reactivate') {
+  if (action !== 'reset_password' && action !== 'deactivate' && action !== 'reactivate' && action !== 'approve') {
     return jsonResponse(400, { error: 'Select a supported account action.' }, headers);
   }
 
@@ -99,7 +99,7 @@ Deno.serve(async (request) => {
 
   const { data: target, error: targetError } = await serviceClient
     .from('profiles')
-    .select('id, email, role, is_active')
+    .select('id, email, role, is_active, approval_status')
     .eq('id', targetUserId)
     .eq('organization_id', actor.organization_id)
     .maybeSingle();
@@ -109,6 +109,13 @@ Deno.serve(async (request) => {
   }
   if (!target || (target.role !== 'district_manager' && target.role !== 'enumerator')) {
     return jsonResponse(404, { error: 'The selected staff account was not found.' }, headers);
+  }
+
+  if (action === 'approve' && (target.role !== 'enumerator' || target.approval_status !== 'pending' || target.is_active)) {
+    return jsonResponse(409, { error: 'This Screening Faculty account is not waiting for approval.' }, headers);
+  }
+  if (action === 'reactivate' && target.approval_status !== 'approved') {
+    return jsonResponse(409, { error: 'Approve this account before reactivating it.' }, headers);
   }
 
   if (action === 'reset_password') {
@@ -134,6 +141,20 @@ Deno.serve(async (request) => {
     if (banError) {
       console.error('The staff profile was disabled, but its Auth account could not be blocked.', banError.message);
       return jsonResponse(500, { error: 'The account is disabled in the app, but sign-in could not be blocked. Contact your platform administrator.' }, headers);
+    }
+  } else if (action === 'approve') {
+    const { data: updatedProfiles, error: profileError } = await serviceClient
+      .from('profiles')
+      .update({ is_active: true, approval_status: 'approved' })
+      .eq('id', target.id)
+      .eq('organization_id', actor.organization_id)
+      .eq('role', 'enumerator')
+      .eq('is_active', false)
+      .eq('approval_status', 'pending')
+      .select('id');
+    if (profileError || !updatedProfiles?.length) {
+      console.error('Unable to approve the Screening Faculty account.', profileError?.message ?? 'No pending account was updated.');
+      return jsonResponse(409, { error: 'The account could not be approved because its status has changed. Refresh and try again.' }, headers);
     }
   } else {
     const { error: unbanError } = await serviceClient.auth.admin.updateUserById(target.id, { ban_duration: 'none' });
