@@ -535,7 +535,7 @@ export function StudentRegistrationPage() {
         {draftError && <div role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">{draftError}</div>}
         {syncMessage && <div role="status" className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800">{syncMessage}</div>}
         {sessionsError && <div role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">Screening sessions could not be loaded: {sessionsError}</div>}
-      {!isLoading && !sessionsError && !(sessions ?? []).some((session) => session.status === 'active') && <p className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">No active screening session is assigned or available to your account. Ask an administrator to create a session or assign you to one.</p>}
+      {!isLoading && !sessionsError && !(sessions ?? []).some((session) => session.status === 'active') && <div role="status" className="flex flex-col gap-3 rounded-xl bg-amber-50 p-4 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between"><p>No active screening session is assigned or available to your account. Student records must belong to an active session before they can be saved.</p>{user?.role === 'organization_admin' && <button type="button" onClick={() => navigate('/screening-sessions')} className="shrink-0 self-start rounded-lg bg-amber-900 px-3 py-2 font-semibold text-white hover:bg-amber-950 sm:self-auto">Create or assign a session</button>}</div>}
       {!isLoading && !sessionsError && form.sessionId && !selectedSession && <p role="alert" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">The selected session is no longer active or is unavailable. Choose an active session to continue.</p>}
 
       <form onSubmit={(event) => void handleSubmit(event)} className="card space-y-5">
@@ -592,7 +592,7 @@ export function StudentRegistrationPage() {
             <p className="mt-2 text-sm text-slate-700">No active schools are available for this district and taluk.</p>
           )}
           {form.schoolId && !isLoading && !sessionsError && availableSessions.length === 0 && (
-            <p className="mt-2 text-sm text-slate-700">No active screening sessions are available for this school. Ask an administrator to create or assign a session.</p>
+            <div className="mt-2 flex flex-col gap-2 text-sm text-slate-700 sm:flex-row sm:items-center sm:justify-between"><p>No active screening sessions are available for this school. Create or assign a session, then return here; your student draft will remain saved.</p>{user?.role === 'organization_admin' && <button type="button" onClick={() => navigate('/screening-sessions')} className="self-start font-semibold text-cyan-800 underline sm:self-auto">Go to Screening Sessions</button>}</div>
           )}
           {selectedSession && <div className="mt-2 grid gap-1 text-slate-700 sm:grid-cols-2">
             <span>School: {selectedSession.schoolName}</span><span>District: {selectedSession.districtName}</span>
@@ -633,9 +633,10 @@ export function StudentRegistrationPage() {
             BMI is informational and not diagnostic. {isLocalTestSessionActive() ? 'Local test records stay in this browser and are not sent to Supabase.' : 'Screening data is saved to your organization database.'}
           </p>
           <div className="grid grid-cols-2 gap-2 sm:flex">
-            <button type="submit" onClick={() => { saveAnother.current = false; }} disabled={isSaving || isLoading || Boolean(sessionsError) || !selectedSession} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 sm:px-4">Save student</button>
-            <button type="submit" onClick={() => { saveAnother.current = true; }} disabled={isSaving || isLoading || Boolean(sessionsError) || !selectedSession} className="rounded-xl bg-cyan-600 px-3 py-2.5 text-sm font-medium text-white hover:bg-cyan-500 disabled:opacity-50 sm:px-4">{isSaving ? 'Saving…' : 'Save & Add Another'}</button>
+            <button type="submit" title={!selectedSession ? 'Choose an active screening session before saving.' : undefined} onClick={() => { saveAnother.current = false; }} disabled={isSaving || isLoading || Boolean(sessionsError) || !selectedSession} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 sm:px-4">Save student</button>
+            <button type="submit" title={!selectedSession ? 'Choose an active screening session before saving.' : undefined} onClick={() => { saveAnother.current = true; }} disabled={isSaving || isLoading || Boolean(sessionsError) || !selectedSession} className="rounded-xl bg-cyan-600 px-3 py-2.5 text-sm font-medium text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50 sm:px-4">{isSaving ? 'Saving…' : 'Save & Add Another'}</button>
           </div>
+          {!selectedSession && <p role="status" className="text-right text-sm text-amber-800">Select an active screening session to enable saving. Your draft is saved on this device.</p>}
         </div>
 
         {submitted && <div role="status" className={`rounded-xl px-4 py-3 text-sm ${submissionStatus === 'offline' ? 'bg-amber-50 text-amber-900' : 'bg-emerald-50 text-emerald-800'}`}>{submissionStatus === 'offline' ? 'Offline — data saved on this device. It is pending and will sync automatically when connected; the SI NO will be assigned when synced.' : `Student screening saved with SI NO ${savedSiNumber}.`}</div>}
