@@ -13,6 +13,7 @@ export function ScreeningSessionsPage() {
   const { data: schools, error: schoolsError } = useRemoteData(getSchools);
   const { data: users, error: usersError } = useRemoteData(getOrganizationUsers);
   const [showForm, setShowForm] = useState(false);
+  const [schoolNameInput, setSchoolNameInput] = useState('');
   const [form, setForm] = useState({
     name: '',
     date: getLocalDateString(),
@@ -32,6 +33,11 @@ export function ScreeningSessionsPage() {
       : user?.role === 'enumerator' && school.ownerId === user.id,
   );
   const schoolChoices = user?.role === 'organization_admin' ? activeSchools : availableSchools;
+  const matchingSchoolChoices = schoolChoices.filter((school) =>
+    `${school.name} ${school.code} ${activeFaculty.find((member) => member.id === school.ownerId)?.name ?? ''}`
+      .toLocaleLowerCase()
+      .includes(schoolNameInput.trim().toLocaleLowerCase()),
+  );
   const selectedSchool = activeSchools.find((school) => school.id === form.schoolId);
   const selectedSchoolFaculty = selectedSchool
     ? activeFaculty.find((member) => member.id === selectedSchool.ownerId)
@@ -60,6 +66,7 @@ export function ScreeningSessionsPage() {
         school,
       });
       setForm({ name: '', date: getLocalDateString(), schoolId: '', beoName: '', headMasterName: '' });
+      setSchoolNameInput('');
       setShowForm(false);
       reload();
     } catch (error) {
@@ -83,6 +90,12 @@ export function ScreeningSessionsPage() {
         <form onSubmit={(event) => void handleSubmit(event)} className="card space-y-4">
           <h3 className="text-lg font-semibold text-slate-900">Create screening session</h3>
           <div className="grid gap-4 md:grid-cols-3">
+            <label className="text-sm font-medium text-slate-700">Find school by name
+              <input value={schoolNameInput} onChange={(event) => {
+                setSchoolNameInput(event.target.value);
+                setForm((current) => current.schoolId ? { ...current, schoolId: '' } : current);
+              }} placeholder="Type a school name or code" className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" />
+            </label>
             <label className="text-sm font-medium text-slate-700">Session name
               <input required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" />
             </label>
@@ -92,7 +105,7 @@ export function ScreeningSessionsPage() {
             <label className="text-sm font-medium text-slate-700">School
               <select required value={form.schoolId} onChange={(event) => setForm((current) => ({ ...current, schoolId: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
                 <option value="">Select a school</option>
-                {schoolChoices.map((school) => {
+                {matchingSchoolChoices.map((school) => {
                   const faculty = activeFaculty.find((member) => member.id === school.ownerId);
                   return <option key={school.id} value={school.id}>
                     {school.name}{user?.role === 'organization_admin' ? ` · ${faculty?.name ?? 'No active faculty assigned'}` : ''}
@@ -111,6 +124,7 @@ export function ScreeningSessionsPage() {
             </label>
           </div>
           {schoolChoices.length === 0 && <p role="status" className="text-sm text-amber-800">{schools?.length ? 'No active schools are available in your account scope.' : 'Add an active school before creating a session.'}</p>}
+          {schoolNameInput.trim() && matchingSchoolChoices.length === 0 && <p role="status" className="text-sm text-amber-800">No school matches that name. Add it on the <a href="/schools" className="font-semibold underline">Schools page</a>, then return to create a session.</p>}
           {user?.role === 'organization_admin' && selectedSchool && !selectedSchoolFaculty && <p role="status" className="text-sm text-amber-800">{selectedSchool.name} has no active Screening Faculty assignment. Assign one on the <a href="/schools" className="font-semibold underline">Schools page</a>, then return here to create its session.</p>}
           {saveError && <div role="alert" className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-800">{saveError}</div>}
           <div className="flex justify-end gap-3">

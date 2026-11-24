@@ -92,6 +92,7 @@ export function StudentRegistrationPage() {
   const { data: taluks, isLoading: taluksLoading, error: taluksError } = useRemoteData(getTaluks);
   const { data: schools, isLoading: schoolsLoading, error: schoolsError, reload: reloadSchools } = useRemoteData(loadSchools);
   const [form, setForm] = useState(() => ({ ...initialForm, sessionId: searchParams.get('sessionId') ?? '' }));
+  const [schoolNameFilter, setSchoolNameFilter] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [submissionStatus, setSubmissionStatus] = useState<'online' | 'offline' | null>(null);
   const [error, setError] = useState('');
@@ -241,6 +242,9 @@ export function StudentRegistrationPage() {
     && school.districtId === form.districtId
     && school.talukId === form.talukId,
   );
+  const matchingSchools = availableSchools.filter((school) =>
+    `${school.name} ${school.code}`.toLocaleLowerCase().includes(schoolNameFilter.trim().toLocaleLowerCase()),
+  );
   const selectedSchool = availableSchools.find((school) => school.id === form.schoolId);
   const availableSessions = (sessions ?? []).filter((session) =>
     session.status === 'active'
@@ -320,18 +324,21 @@ export function StudentRegistrationPage() {
 
   const handleDistrictChange = (districtId: string) => {
     setForm((current) => ({ ...current, districtId, talukId: '', schoolId: '', sessionId: '' }));
+    setSchoolNameFilter('');
     setSubmitted(false);
     setError('');
   };
 
   const handleTalukChange = (talukId: string) => {
     setForm((current) => ({ ...current, talukId, schoolId: '', sessionId: '' }));
+    setSchoolNameFilter('');
     setSubmitted(false);
     setError('');
   };
 
   const handleSchoolChange = (schoolId: string) => {
     setForm((current) => ({ ...current, schoolId, sessionId: '' }));
+    setSchoolNameFilter('');
     setSubmitted(false);
     setError('');
   };
@@ -556,10 +563,15 @@ export function StudentRegistrationPage() {
               </select>
             </label>
             <label className="block font-medium">Select School
+              <input aria-label="Find school by name" value={schoolNameFilter} onChange={(event) => {
+                setSchoolNameFilter(event.target.value);
+                setForm((current) => current.schoolId ? { ...current, schoolId: '', sessionId: '' } : current);
+              }} placeholder="Type to search schools" autoComplete="off" className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5" />
               <select required value={form.schoolId} onChange={(event) => handleSchoolChange(event.target.value)} disabled={!form.districtId || !form.talukId || schoolsLoading || Boolean(schoolsError) || isSaving} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5">
                 <option value="">Select a school</option>
-                {availableSchools.map((school) => <option key={school.id} value={school.id}>{school.name} · {school.code}</option>)}
+                {matchingSchools.map((school) => <option key={school.id} value={school.id}>{school.name} · {school.code}</option>)}
               </select>
+              {schoolNameFilter.trim() && matchingSchools.length === 0 && <span className="mt-1 block text-xs font-normal text-amber-800">{user?.role === 'organization_admin' ? <>No school matches. <button type="button" onClick={() => navigate('/schools')} className="font-semibold underline">Add the school</button>, assign it, then create a session before returning here.</> : 'No school matches your assignments. Ask your administrator to add the school and assign a screening session to your account.'} Your draft stays saved on this device.</span>}
             </label>
             <label className="block font-medium">Active screening session
               <select required value={form.sessionId} onChange={(event) => handleSessionChange(event.target.value)} disabled={!form.schoolId || isLoading || Boolean(sessionsError) || isSaving} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5">
