@@ -11,8 +11,29 @@ export default defineConfig({
       manifest: false,
       workbox: {
         globPatterns: ['**/*.{css,html,ico,js,png,svg,webmanifest}'],
+        globIgnores: ['**/studentListPdf-*.js'],
         navigateFallback: 'index.html',
         cleanupOutdatedCaches: true,
+        runtimeCaching: [
+          {
+            urlPattern: /\/assets\/studentListPdf-[^/]+\.js$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'student-list-pdf-reader',
+              expiration: { maxEntries: 2, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [200] },
+            },
+          },
+          {
+            urlPattern: /\/assets\/pdf\.worker\.min-[^/]+\.mjs$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'student-list-pdf-worker',
+              expiration: { maxEntries: 2, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [200] },
+            },
+          },
+        ],
       },
     }),
   ],

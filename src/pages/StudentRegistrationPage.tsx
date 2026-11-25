@@ -19,6 +19,8 @@ import {
   savePendingSubmission,
 } from '../lib/pendingSubmissions';
 import { PENDING_SUBMISSIONS_SYNCED_EVENT } from '../lib/pendingSubmissionSync';
+import { getStudentRosters, markStudentRosterEntryComplete, saveStudentRoster } from '../lib/studentRosters.js';
+import type { StudentRoster } from '../lib/studentRosters.js';
 import type { PendingStudentSubmission, StudentRecord } from '../types';
 
 const initialForm = {
@@ -93,10 +95,19 @@ export function StudentRegistrationPage() {
   const { data: schools, isLoading: schoolsLoading, error: schoolsError, reload: reloadSchools } = useRemoteData(loadSchools);
   const [form, setForm] = useState(() => ({ ...initialForm, sessionId: searchParams.get('sessionId') ?? '' }));
   const [schoolNameFilter, setSchoolNameFilter] = useState('');
+  const [studentRosters, setStudentRosters] = useState<StudentRoster[]>([]);
+  const [selectedRosterEntry, setSelectedRosterEntry] = useState<{ rosterId: string; entryId: string } | null>(null);
+  const [rosterDraftFileName, setRosterDraftFileName] = useState('');
+  const [rosterDraftText, setRosterDraftText] = useState('');
+  const [rosterError, setRosterError] = useState('');
+  const [rosterMessage, setRosterMessage] = useState('');
+  const [isReadingRoster, setIsReadingRoster] = useState(false);
+  const [isSavingRoster, setIsSavingRoster] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submissionStatus, setSubmissionStatus] = useState<'online' | 'offline' | null>(null);
   const [error, setError] = useState('');
   const [pendingSubmissions, setPendingSubmissions] = useState<PendingStudentSubmission[]>([]);
+  const [isLoadingPendingSubmissions, setIsLoadingPendingSubmissions] = useState(true);
   const [pendingStorageError, setPendingStorageError] = useState('');
   const [pendingResolutionId, setPendingResolutionId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -117,15 +128,30 @@ export function StudentRegistrationPage() {
     let active = true;
     const refreshPendingSubmissions = () => {
       void getPendingSubmissions(user.id)
-        .then((submissions) => {
+        .then(async (submissions) => {
+          const completedRosterEntries = submissions.filter((submission) =>
+            submission.syncStatus === 'synced'
+            && submission.data.studentRosterId
+            && submission.data.studentRosterEntryId,
+          );
+          await Promise.all(completedRosterEntries.map((submission) => markStudentRosterEntryComplete(
+            user.id,
+            submission.data.studentRosterId!,
+            submission.data.studentRosterEntryId!,
+          )));
           if (active) {
             setPendingSubmissions(submissions);
             setPendingStorageError('');
+            setIsLoadingPendingSubmissions(false);
+            setStudentRosters(form.sessionId
+              ? await getStudentRosters(user.id, form.sessionId)
+              : []);
           }
         })
         .catch((storageError: unknown) => {
           console.error('Unable to load pending offline submissions.', storageError);
           if (active) {
+            setIsLoadingPendingSubmissions(false);
             setPendingStorageError('Offline submissions could not be loaded from this device.');
           }
         });
@@ -147,7 +173,24 @@ export function StudentRegistrationPage() {
       window.removeEventListener(PENDING_SUBMISSIONS_SYNCED_EVENT, handleSynchronized);
       window.removeEventListener('focus', refreshPendingSubmissions);
     };
-  }, [user]);
+  }, [user, form.sessionId]);
+
+  useEffect(() => {
+    setRosterMessage('');
+    setRosterError('');
+    if (!user || !form.sessionId) {
+      setStudentRosters([]);
+      return;
+    }
+    let active = true;
+    void getStudentRosters(user.id, form.sessionId)
+      .then((rosters) => { if (active) setStudentRosters(rosters); })
+      .catch((loadError: unknown) => {
+        console.error('Unable to load the student name lists.', loadError);
+        if (active) setRosterError('Student lists could not be loaded from this device.');
+      });
+    return () => { active = false; };
+  }, [user?.id, form.sessionId]);
 
   const urlSessionId = searchParams.get('sessionId') ?? '';
   useEffect(() => {
@@ -171,10 +214,16 @@ export function StudentRegistrationPage() {
           if (typeof value === 'string') restored[key] = value;
         }
         setForm({ ...restored, sessionId: urlSessionId || restored.sessionId });
+        setSelectedRosterEntry(isRecord(parsed.selectedRosterEntry)
+          && typeof parsed.selectedRosterEntry.rosterId === 'string'
+          && typeof parsed.selectedRosterEntry.entryId === 'string'
+          ? { rosterId: parsed.selectedRosterEntry.rosterId, entryId: parsed.selectedRosterEntry.entryId }
+          : null);
         setDraftSavedAt(typeof parsed.savedAt === 'string' && Number.isFinite(Date.parse(parsed.savedAt)) ? parsed.savedAt : '');
         setIsDirty(hasStudentDraft(restored));
       } else {
         setForm({ ...initialForm, sessionId: urlSessionId });
+        setSelectedRosterEntry(null);
         setDraftSavedAt('');
         setIsDirty(false);
       }
@@ -204,7 +253,7 @@ export function StudentRegistrationPage() {
     const timer = window.setTimeout(() => {
       try {
         const savedAt = new Date().toISOString();
-        localStorage.setItem(key, JSON.stringify({ form, savedAt }));
+        localStorage.setItem(key, JSON.stringify({ form, selectedRosterEntry, savedAt }));
         setDraftSavedAt(savedAt);
         setDraftError('');
       } catch (storageError) {
@@ -213,7 +262,7 @@ export function StudentRegistrationPage() {
       }
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [form, user?.id, draftOwnerId, draftError]);
+  }, [form, selectedRosterEntry, user?.id, draftOwnerId, draftError]);
 
   useEffect(() => {
     if (!draftSavedAt) return;
@@ -253,6 +302,13 @@ export function StudentRegistrationPage() {
     && session.schoolId === form.schoolId,
   );
   const selectedSession = availableSessions.find((session) => session.id === form.sessionId);
+  const pendingRosterEntryKeys = new Set((pendingSubmissions ?? [])
+    .filter((submission) => ['pending', 'syncing', 'failed', 'conflict'].includes(submission.syncStatus))
+    .filter((submission) => submission.data.studentRosterId && submission.data.studentRosterEntryId)
+    .map((submission) => `${submission.data.studentRosterId}:${submission.data.studentRosterEntryId}`));
+  const selectableStudentRosterCount = studentRosters.reduce((count, roster) => count + roster.entries.filter((entry) =>
+    !entry.completedAt && !pendingRosterEntryKeys.has(`${roster.id}:${entry.id}`),
+  ).length, 0);
   const screeningDate = selectedSession?.date ?? today;
   const dateOfBirth = parseDateOfBirth(form.dateOfBirth);
   const age = dateOfBirth ? calculateAge(dateOfBirth, screeningDate) : '';
@@ -285,6 +341,68 @@ export function StudentRegistrationPage() {
     setDraftError('');
     setIsDirty(true);
     setError('');
+  };
+
+  const handleStudentNameListUpload = async (file?: File) => {
+    if (!file) return;
+    setRosterError('');
+    setRosterMessage('');
+    setIsReadingRoster(true);
+    try {
+      const { extractStudentNamesFromPdf } = await import('../lib/studentListPdf');
+      const names = await extractStudentNamesFromPdf(file);
+      setRosterDraftFileName(file.name);
+      setRosterDraftText(names.join('\n'));
+      setRosterMessage(`${names.length} names extracted. Review and correct the list below before saving it.`);
+    } catch (uploadError) {
+      console.error('Unable to read the uploaded student name list.', uploadError);
+      setRosterError(uploadError instanceof Error ? uploadError.message : 'The PDF could not be read.');
+    } finally {
+      setIsReadingRoster(false);
+    }
+  };
+
+  const handleSaveStudentNameList = async () => {
+    if (!user || !selectedSession || !rosterDraftText.trim()) {
+      setRosterError('Select an active screening session and enter at least one student name.');
+      return;
+    }
+    setIsSavingRoster(true);
+    setRosterError('');
+    setRosterMessage('');
+    try {
+      const roster = await saveStudentRoster({
+        userId: user.id,
+        sessionId: selectedSession.id,
+        fileName: rosterDraftFileName || 'Manually prepared student list',
+        names: rosterDraftText.split(/\r?\n/),
+      });
+      setStudentRosters((current) => [roster, ...current]);
+      setRosterDraftText('');
+      setRosterDraftFileName('');
+      setRosterMessage(`${roster.entries.length} student names saved on this device for ${selectedSession.name}.`);
+    } catch (saveRosterError) {
+      console.error('Unable to save the student name list.', saveRosterError);
+      setRosterError(saveRosterError instanceof Error ? saveRosterError.message : 'The student list could not be saved.');
+    } finally {
+      setIsSavingRoster(false);
+    }
+  };
+
+  const handleRosterStudentSelect = (value: string) => {
+    if (!value) {
+      setSelectedRosterEntry(null);
+      return;
+    }
+    const [rosterId, entryId] = value.split(':');
+    const entry = studentRosters.find((roster) => roster.id === rosterId)?.entries.find((candidate) => candidate.id === entryId);
+    if (!entry || entry.completedAt) return;
+    setSelectedRosterEntry({ rosterId, entryId });
+    setForm((current) => ({ ...current, studentName: entry.name }));
+    setSubmitted(false);
+    setSubmissionStatus(null);
+    setError('');
+    setIsDirty(true);
   };
 
   const clearSavedDraft = (userId: string) => {
@@ -323,6 +441,7 @@ export function StudentRegistrationPage() {
   };
 
   const handleDistrictChange = (districtId: string) => {
+    setSelectedRosterEntry(null);
     setForm((current) => ({ ...current, districtId, talukId: '', schoolId: '', sessionId: '' }));
     setSchoolNameFilter('');
     setSubmitted(false);
@@ -330,6 +449,7 @@ export function StudentRegistrationPage() {
   };
 
   const handleTalukChange = (talukId: string) => {
+    setSelectedRosterEntry(null);
     setForm((current) => ({ ...current, talukId, schoolId: '', sessionId: '' }));
     setSchoolNameFilter('');
     setSubmitted(false);
@@ -337,6 +457,7 @@ export function StudentRegistrationPage() {
   };
 
   const handleSchoolChange = (schoolId: string) => {
+    setSelectedRosterEntry(null);
     setForm((current) => ({ ...current, schoolId, sessionId: '' }));
     setSchoolNameFilter('');
     setSubmitted(false);
@@ -344,6 +465,7 @@ export function StudentRegistrationPage() {
   };
 
   const handleSessionChange = (sessionId: string) => {
+    setSelectedRosterEntry(null);
     const session = sessions?.find((candidate) => candidate.id === sessionId);
     setForm((current) => ({
       ...current,
@@ -439,12 +561,17 @@ export function StudentRegistrationPage() {
         userId: user.id,
         sessionId: selectedSession.id,
         student: record,
+        ...(selectedRosterEntry ? {
+          studentRosterId: selectedRosterEntry.rosterId,
+          studentRosterEntryId: selectedRosterEntry.entryId,
+        } : {}),
       };
 
       if (!isLocalTestSessionActive() && !navigator.onLine) {
         await savePendingSubmission(submission, { idempotencyKey });
         clearSavedDraft(user.id);
         setForm({ ...initialForm, sessionId: selectedSession.id });
+        setSelectedRosterEntry(null);
         setSubmissionStatus('offline');
         setSavedSiNumber('');
         setSubmitted(true);
@@ -453,6 +580,16 @@ export function StudentRegistrationPage() {
       }
 
       const siNumber = await createStudentScreening(submission, { idempotencyKey });
+      if (selectedRosterEntry) {
+        try {
+          await markStudentRosterEntryComplete(user.id, selectedRosterEntry.rosterId, selectedRosterEntry.entryId);
+          setStudentRosters(await getStudentRosters(user.id, selectedSession.id));
+        } catch (rosterUpdateError) {
+          console.error('Screening saved, but the local student list could not be updated.', rosterUpdateError);
+          setRosterError('Screening saved successfully, but the selected name could not be marked complete on this device. Refresh the list before continuing.');
+        }
+      }
+      setSelectedRosterEntry(null);
       clearSavedDraft(user.id);
       setSubmissionStatus('online');
       setSavedSiNumber(siNumber);
@@ -612,10 +749,42 @@ export function StudentRegistrationPage() {
             <span>Head Master: {selectedSession.headMasterName}</span><span>Screening Faculty: {selectedSession.screeningFacultyName}</span>
           </div>}
         </div>
+        {user?.role === 'enumerator' && selectedSession && <section aria-label="Student name list" className="space-y-3 rounded-xl border border-cyan-200 bg-cyan-50/70 p-4">
+          <div>
+            <h3 className="font-semibold text-slate-900">Student name list</h3>
+            <p className="mt-1 text-sm text-slate-600">Upload a text-based PDF, review the extracted names, then choose a student. The PDF and list stay on this device; they are not uploaded. Scanned image PDFs need OCR and cannot be imported here.</p>
+          </div>
+          <label className="block text-sm font-medium text-slate-700">Upload student list PDF
+            <input type="file" accept="application/pdf,.pdf" disabled={isReadingRoster || isSavingRoster || isSaving} onChange={(event) => { void handleStudentNameListUpload(event.target.files?.[0]); event.currentTarget.value = ''; }} className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 file:mr-3 file:rounded-lg file:border-0 file:bg-cyan-100 file:px-3 file:py-2 file:font-semibold file:text-cyan-900" />
+          </label>
+          {isReadingRoster && <p role="status" className="text-sm text-slate-600">Reading PDF in this browser…</p>}
+          {rosterDraftText && <div className="space-y-2">
+            <label className="block text-sm font-medium text-slate-700">Review names · one student per line
+              <textarea rows={7} maxLength={200000} value={rosterDraftText} onChange={(event) => setRosterDraftText(event.target.value)} disabled={isSavingRoster} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 font-normal" />
+            </label>
+            <button type="button" onClick={() => void handleSaveStudentNameList()} disabled={isSavingRoster || !rosterDraftText.trim()} className="rounded-xl bg-cyan-700 px-4 py-2.5 font-semibold text-white disabled:opacity-50">{isSavingRoster ? 'Saving list…' : `Save reviewed list for ${selectedSession.name}`}</button>
+          </div>}
+          <label className="block text-sm font-medium text-slate-700">Choose a name from a saved list
+            <select value={selectedRosterEntry ? `${selectedRosterEntry.rosterId}:${selectedRosterEntry.entryId}` : ''} onChange={(event) => handleRosterStudentSelect(event.target.value)} disabled={isLoadingPendingSubmissions || selectableStudentRosterCount === 0 || isSaving} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+              <option value="">No list selection · enter the name manually</option>
+              {studentRosters.map((roster) => {
+                const availableEntries = roster.entries.filter((entry) => !entry.completedAt && !pendingRosterEntryKeys.has(`${roster.id}:${entry.id}`));
+                if (availableEntries.length === 0) return null;
+                return <optgroup key={roster.id} label={`${roster.fileName} · ${availableEntries.length} remaining`}>
+                  {availableEntries.map((entry) => <option key={entry.id} value={`${roster.id}:${entry.id}`}>{entry.name}</option>)}
+                </optgroup>;
+              })}
+            </select>
+          </label>
+          {studentRosters.length > 0 && <p className="text-xs text-slate-600">Names are stored on this browser and scoped to your account and screening session. A name is marked complete only after an online save succeeds or an offline submission syncs successfully.</p>}
+          {pendingRosterEntryKeys.size > 0 && <p role="status" className="text-xs text-amber-800">{pendingRosterEntryKeys.size} selected name(s) are held while their offline screening syncs, so they cannot be submitted twice.</p>}
+          {rosterMessage && <p role="status" className="text-sm text-emerald-800">{rosterMessage}</p>}
+          {rosterError && <p role="alert" className="text-sm text-rose-800">{rosterError}</p>}
+        </section>}
         <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600">Student information</h3>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <label className="text-sm font-medium text-slate-700">SI NO<input readOnly value="Assigned automatically on save" className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2.5 text-slate-500" /><span className="mt-1 block text-xs font-normal text-slate-500">The number restarts for each screening session.</span></label>
-          <label className="text-sm font-medium text-slate-700">Student Name<input required maxLength={200} autoComplete="off" value={form.studentName} onChange={(event) => handleChange('studentName', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" /></label>
+          <label className="text-sm font-medium text-slate-700">Student Name<input required maxLength={200} autoComplete="off" value={form.studentName} onChange={(event) => { setSelectedRosterEntry(null); handleChange('studentName', event.target.value); }} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" /></label>
           <label className="text-sm font-medium text-slate-700">Class / Grade<select required value={form.className} onChange={(event) => handleChange('className', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5"><option value="">Select class</option>{[...Array.from({ length: 10 }, (_, index) => String(index + 1)), 'Other'].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
           <label className="text-sm font-medium text-slate-700">Section<select required value={form.section} onChange={(event) => handleChange('section', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5"><option value="">Select section</option>{['A', 'B', 'C', 'D', 'Other'].map((value) => <option key={value}>{value}</option>)}</select></label>
           <label className="text-sm font-medium text-slate-700">Sex<select required value={form.sex} onChange={(event) => handleChange('sex', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5"><option value="">Select an option</option><option>Male</option><option>Female</option><option>Other</option><option>Prefer not to specify</option></select></label>

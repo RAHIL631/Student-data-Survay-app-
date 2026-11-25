@@ -1,0 +1,77 @@
+import { normalizeStudentNames } from './studentRosters.js';
+
+function groupTextLines(fragments) {
+  const lines = [];
+  for (const fragment of fragments.sort((left, right) => right.y - left.y || left.x - right.x)) {
+    let line = lines.find((candidate) => Math.abs(candidate.y - fragment.y) <= 2.5);
+    if (!line) {
+      line = { y: fragment.y, fragments: [] };
+      lines.push(line);
+    }
+    line.fragments.push(fragment);
+  }
+  return lines.map((line) => ({
+    ...line,
+    fragments: line.fragments.sort((left, right) => left.x - right.x),
+  }));
+}
+
+function getLineText(line) {
+  return line.fragments.map((fragment) => fragment.text).join(' ').replace(/\s+/g, ' ').trim();
+}
+
+function isHeaderOrFooter(line) {
+  const normalized = line.toLocaleLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  return !normalized
+    || /^\d+$/.test(normalized)
+    || /^(page\s*)?\d+(\s*of\s*\d+)?$/.test(normalized)
+    || /^(s[li]\.?\s*no|serial\s*(number|no)|roll\s*(number|no)|student\s*name|name\s*of\s*student|name|class|section|grade)\b/.test(normalized)
+    || normalized.includes('list of students')
+    || normalized.includes('student list');
+}
+
+function removeTrailingTableColumns(row, header) {
+  const nameHeader = /\b(student\s*name|name\s*of\s*student|student'?s?\s*name)\b/i.exec(header);
+  if (!nameHeader) return row;
+  const trailingHeaders = header.slice(nameHeader.index + nameHeader[0].length);
+  const columnPattern = /\b(class(?:\s*\/\s*grade)?|grade|section|sex|gender|age|date\s+of\s+birth|dob|roll(?:\s*(?:no|number))?|s[li]\.?(?:\s*no)?)\b/gi;
+  const columnCount = [...trailingHeaders.matchAll(columnPattern)].length;
+  if (columnCount === 0) return row;
+  const words = row.trim().split(/\s+/);
+  return words.length > columnCount ? words.slice(0, -columnCount).join(' ') : row;
+}
+
+export function extractNamesFromTextFragments(fragments) {
+  const lines = groupTextLines(fragments.map((fragment) => ({
+    ...fragment,
+    text: String(fragment.text ?? '').trim(),
+  })).filter((fragment) => fragment.text));
+  const headerLineIndex = lines.findIndex((line) => /\b(student\s*name|name\s*of\s*student|student'?s?\s*name)\b/i.test(getLineText(line)));
+  let candidates;
+
+  if (headerLineIndex >= 0) {
+    const header = lines[headerLineIndex];
+    const headerText = getLineText(header);
+    const nameHeader = header.fragments.find((fragment) => /\b(student\s*name|name\s*of\s*student|student'?s?\s*name)\b/i.test(fragment.text));
+    const startX = nameHeader?.x ?? header.fragments[0]?.x ?? 0;
+    const nextColumnX = header.fragments
+      .filter((fragment) => fragment.x > startX + 4 && /\b(class|grade|section|sex|gender|age|dob|roll|sl\.?\s*no)\b/i.test(fragment.text))
+      .map((fragment) => fragment.x)
+      .sort((left, right) => left - right)[0];
+    candidates = lines.slice(headerLineIndex + 1).map((line) => {
+      let candidate = line.fragments
+        .filter((fragment) => fragment.x >= startX - 3 && (nextColumnX === undefined || fragment.x < nextColumnX - 1))
+        .map((fragment) => fragment.text)
+        .join(' ')
+        .replace(/^\s*(?:(?:s[li]\.?\s*no|serial\s*(?:number|no)|roll\s*(?:number|no))\.?\s*)?\d{1,4}[.)\-:]?\s+/i, '');
+      if (header.fragments.length === 1 || nextColumnX === undefined) {
+        candidate = removeTrailingTableColumns(candidate, headerText);
+      }
+      return candidate;
+    });
+  } else {
+    candidates = lines.map(getLineText).map((line) => line.replace(/^\s*(?:(?:sl\.?\s*)?no\.?\s*)?\d{1,4}[.)\-:]?\s+/i, ''));
+  }
+
+  return normalizeStudentNames(candidates.filter((candidate) => !isHeaderOrFooter(candidate)));
+}

@@ -93,6 +93,8 @@ export type PendingStudentSubmissionData = {
   userId: string;
   sessionId: string;
   student: StudentRecord;
+  studentRosterId?: string;
+  studentRosterEntryId?: string;
 };
 
 export type PendingStudentSubmission = {

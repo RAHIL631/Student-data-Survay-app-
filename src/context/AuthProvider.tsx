@@ -183,7 +183,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           throw new Error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your local .env file.');
         }
 
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        const normalizedEmail = email.trim().toLowerCase();
+        const { data, error } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
         if (error) {
           console.error('Supabase rejected the sign-in request.', error.message);
           throw new Error('Email or password is incorrect, or this account is unavailable.');
