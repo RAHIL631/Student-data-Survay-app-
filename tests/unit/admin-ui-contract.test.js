@@ -12,6 +12,7 @@ test('only organization administrators can access staff management', () => {
   assert.equal(canAccessRoute('organization_admin', 'users'), true);
   assert.equal(canAccessRoute('district_manager', 'users'), false);
   assert.equal(canAccessRoute('enumerator', 'users'), false);
+  assert.equal(canAccessRoute('enumerator', 'schools'), true);
   assert.equal(canAccessRoute('unexpected', 'users'), false);
 
   const app = readSource('src/App.tsx');
@@ -36,9 +37,41 @@ test('dashboard loads current RLS-scoped summary, profiles, and districts with r
   assert.match(page, /getDashboardSummary\(\)/);
   assert.match(page, /getOrganizationProfiles\(\)/);
   assert.match(page, /getDistricts\(\)/);
+  assert.match(page, /approvalStatus === 'pending'/);
+  assert.match(page, /Awaiting approval/);
   assert.match(page, /useRemoteData\(load\)/);
   assert.match(page, /onClick=\{reload\}/);
   assert.doesNotMatch(page, /getOwnerDataGrants|setOwnerDataGrant/);
+});
+
+test('school assignment and Enumerator location writes use the scoped RPC contract', () => {
+  const schoolsPage = readSource('src/pages/SchoolsPage.tsx');
+  const service = readSource('src/lib/dataService.ts');
+  const migration = readSource('supabase/migrations/20261208000000_school_workflow_compatibility.sql');
+  assert.match(schoolsPage, /assignSchoolOwner\(assignmentForm\.schoolId, assignmentForm\.ownerId\)/);
+  assert.match(schoolsPage, /district\.id === user\?\.districtId/);
+  assert.match(service, /rpc\('assign_school_owner'/);
+  assert.match(migration, /current_profile_role\(\) <> 'organization_admin'/);
+  assert.match(migration, /target_enumerator\.district_id IS DISTINCT FROM target_school\.district_id/);
+  assert.match(migration, /s\.owner_id = actor_id AND s\.district_id = actor_district/);
+});
+
+test('approval uses the authenticated database RPC and only approved active Enumerators qualify as faculty', () => {
+  const activation = readSource('src/components/AccountActivationManagement.tsx');
+  const schools = readSource('src/pages/SchoolsPage.tsx');
+  const service = readSource('src/lib/dataService.ts');
+  const migration = readSource('supabase/migrations/20261206000000_enumerator_approval_contract.sql');
+
+  assert.match(activation, /approveEnumeratorProfile\(profileId\)/);
+  assert.match(activation, /onClick=\{\(\) => void approve\(profile\.id\)\}/);
+  assert.match(activation, /await reload\(\)/);
+  assert.match(service, /rpc\('approve_enumerator_profile',\s*\{\s*target_profile_id: profileId/s);
+  assert.match(service, /profile\?\.role === 'enumerator'[\s\S]*profile\.is_active[\s\S]*profile\.approval_status === 'approved'/);
+  assert.doesNotMatch(service.slice(service.indexOf('export async function approveEnumeratorProfile'), service.indexOf('export async function setProfileActive')), /functions\.invoke|admin-provision-user/);
+  assert.match(schools, /member\.role === 'enumerator'[\s\S]*member\.isActive[\s\S]*member\.approvalStatus === 'approved'[\s\S]*member\.districtId === selectedAssignmentSchool\?\.districtId/);
+  assert.match(migration, /public\.current_profile_role\(\) <> 'organization_admin'/);
+  assert.match(migration, /target\.organization_id = actor_org|p\.organization_id = actor_org/);
+  assert.match(migration, /INSERT INTO public\.audit_logs/);
 });
 
 test('staff page uses existing invitation and account activation workflows', () => {
@@ -86,7 +119,7 @@ test('dashboard student total is labeled as records rather than completed screen
   const adminDashboard = readSource('src/pages/AdminDashboardPage.tsx');
   const service = readSource('src/lib/dataService.ts');
   assert.match(dashboard, /label: 'Student records', value: data\.summary\.studentCount/);
-  assert.match(adminDashboard, /title: 'Student records', count: data\.summary\.studentCount/);
+  assert.match(adminDashboard, /title: 'Students screened', count: data\.summary\.studentCount/);
   assert.match(service, /studentCount: students\.count \?\? 0/);
   assert.match(service, /from\('student_screenings'\)\.select\('id', \{ count: 'exact', head: true \}\)/);
 });

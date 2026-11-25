@@ -87,6 +87,13 @@ export class InactiveProfileError extends Error {
   }
 }
 
+export class PendingApprovalError extends Error {
+  constructor() {
+    super('Your account is waiting for administrator approval. You can sign in after it is approved.');
+    this.name = 'PendingApprovalError';
+  }
+}
+
 export type ManagedProfile = {
   id: string;
   name: string;
@@ -94,6 +101,7 @@ export type ManagedProfile = {
   role: AppUser['role'];
   districtId: string | null;
   isActive: boolean;
+  approvalStatus: 'pending' | 'approved';
 };
 
 export async function getProfile(userId: string): Promise<AppUser> {
@@ -103,7 +111,7 @@ export async function getProfile(userId: string): Promise<AppUser> {
 
   const { data, error } = await requireSupabase()
     .from('profiles')
-    .select('id, organization_id, email, full_name, role, district_id, is_active')
+    .select('id, organization_id, email, full_name, role, district_id, is_active, approval_status')
     .eq('id', userId)
     .maybeSingle();
 
@@ -111,6 +119,7 @@ export async function getProfile(userId: string): Promise<AppUser> {
   if (!data) {
     throw new Error('Your account is authenticated but has no organization profile. Ask an organization administrator to provision your profile.');
   }
+  if (data.approval_status === 'pending') throw new PendingApprovalError();
   if (!data.is_active) throw new InactiveProfileError();
 
   return {
@@ -120,6 +129,7 @@ export async function getProfile(userId: string): Promise<AppUser> {
     name: data.full_name,
     role: data.role,
     districtId: data.district_id ?? undefined,
+    approvalStatus: data.approval_status,
   };
 }
 
@@ -186,7 +196,7 @@ export async function getSchools(): Promise<School[]> {
 
   const { data, error } = await requireSupabase()
     .from('schools')
-    .select('id, name, code, district_id, taluk_id, status')
+    .select('id, name, code, district_id, taluk_id, status, owner_id')
     .order('name');
 
   throwIfError(error);
@@ -197,6 +207,7 @@ export async function getSchools(): Promise<School[]> {
     districtId: row.district_id,
     talukId: row.taluk_id,
     status: row.status,
+    ownerId: row.owner_id,
   }));
 }
 
@@ -209,7 +220,7 @@ export async function getActiveSchoolsForOrganization(organizationId: string): P
 
   const { data, error } = await requireSupabase()
     .from('schools')
-    .select('id, name, code, district_id, taluk_id, status')
+    .select('id, name, code, district_id, taluk_id, status, owner_id')
     .eq('organization_id', organizationId)
     .eq('status', 'active')
     .order('name');
@@ -222,6 +233,7 @@ export async function getActiveSchoolsForOrganization(organizationId: string): P
     districtId: row.district_id,
     talukId: row.taluk_id,
     status: row.status,
+    ownerId: row.owner_id,
   }));
 }
 
@@ -392,7 +404,7 @@ export async function getEnumerators(): Promise<AppUser[]> {
 export async function getOrganizationProfiles(): Promise<ManagedProfile[]> {
   const { data, error } = await requireSupabase()
     .from('profiles')
-    .select('id, full_name, email, role, district_id, is_active')
+    .select('id, full_name, email, role, district_id, is_active, approval_status')
     .order('full_name');
   throwIfError(error);
   return (data ?? []).map((row) => ({
@@ -402,7 +414,54 @@ export async function getOrganizationProfiles(): Promise<ManagedProfile[]> {
     role: row.role,
     districtId: row.district_id,
     isActive: row.is_active,
+    approvalStatus: row.approval_status,
   }));
+}
+
+export async function getOrganizationUsers(): Promise<ManagedProfile[]> {
+  if (isLocalTestSessionActive()) {
+    const user = getLocalTestUser();
+    return [{
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      districtId: user.districtId ?? null,
+      isActive: true,
+      approvalStatus: 'approved',
+    }];
+  }
+  return getOrganizationProfiles();
+}
+
+export async function assignSchoolOwner(schoolId: string, enumeratorId: string): Promise<void> {
+  const { data, error } = await requireSupabase().rpc('assign_school_owner', {
+    target_school_id: schoolId,
+    target_enumerator_id: enumeratorId,
+  });
+  throwIfError(error);
+  if (data !== true) throw new Error('The school assignment could not be saved.');
+}
+
+export async function approveEnumeratorProfile(profileId: string): Promise<void> {
+  const client = requireSupabase();
+  const { data, error } = await client.rpc('approve_enumerator_profile', {
+    target_profile_id: profileId,
+  });
+  throwIfError(error);
+  if (data === true) return;
+
+  // A second click can arrive after another request has already approved this
+  // profile. Confirm that exact same-organization-visible profile is now
+  // approved and active; otherwise retain the safe generic failure.
+  const { data: profile, error: profileError } = await client
+    .from('profiles')
+    .select('role, is_active, approval_status')
+    .eq('id', profileId)
+    .maybeSingle();
+  throwIfError(profileError);
+  if (profile?.role === 'enumerator' && profile.is_active && profile.approval_status === 'approved') return;
+  throw new Error('This Enumerator is no longer awaiting approval. Refresh and try again.');
 }
 
 export async function setProfileActive(profileId: string, isActive: boolean): Promise<void> {
