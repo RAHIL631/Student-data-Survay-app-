@@ -206,15 +206,34 @@ async function handleInvitation(
   const redirectOrigin = Deno.env.get('INVITE_REDIRECT_ORIGIN')?.trim() || defaultInvitationRedirectOrigin;
   const redirectUrl = new URL('/accept-invitation', redirectOrigin);
   redirectUrl.searchParams.set('invitation_id', request.invitation_id);
-  let inviteData: Awaited<ReturnType<typeof serviceClient.auth.admin.inviteUserByEmail>>['data'];
-  let inviteError: Awaited<ReturnType<typeof serviceClient.auth.admin.inviteUserByEmail>>['error'];
+  let resultingAuthUserId: string | null = null;
+  let authRequestError: { status?: number } | null = null;
   try {
-    const result = await serviceClient.auth.admin.inviteUserByEmail(
-      action.email,
-      { redirectTo: redirectUrl.toString() },
+    const { data: existingAuthUserId, error: lookupError } = await serviceClient.rpc(
+      'existing_auth_user_for_invitation',
+      { target_invitation_id: request.invitation_id },
     );
-    inviteData = result.data;
-    inviteError = result.error;
+    if (lookupError) throw lookupError;
+
+    if (existingAuthUserId) {
+      // Existing Auth identities receive a recovery link for this exact
+      // invitation. This preserves their UID and avoids duplicate Auth users.
+      const result = await serviceClient.auth.resetPasswordForEmail(action.email, {
+        redirectTo: redirectUrl.toString(),
+      });
+      authRequestError = result.error;
+      if (!result.error) resultingAuthUserId = existingAuthUserId;
+    } else {
+      const result = await serviceClient.auth.admin.inviteUserByEmail(
+        action.email,
+        { redirectTo: redirectUrl.toString() },
+      );
+      authRequestError = result.error;
+      const authUser = result.data?.user;
+      if (authUser?.id && authUser.email && normalizeEmail(authUser.email) === action.email) {
+        resultingAuthUserId = authUser.id;
+      }
+    }
   } catch {
     const { data: recorded, error: recordError } = await serviceClient.rpc(
       'record_user_invitation_auth_result',
@@ -229,10 +248,10 @@ async function handleInvitation(
     return jsonResponse({ status: 'outcome_unknown' }, 202, origin, allowedOrigins);
   }
 
-  if (inviteError) {
-    const definitiveRejection = typeof inviteError.status === 'number'
-      && inviteError.status >= 400
-      && inviteError.status < 500;
+  if (authRequestError) {
+    const definitiveRejection = typeof authRequestError.status === 'number'
+      && authRequestError.status >= 400
+      && authRequestError.status < 500;
     const resultStatus = definitiveRejection ? 'rejected_by_auth' : 'unknown';
     const { data: recorded, error: recordError } = await serviceClient.rpc(
       'record_user_invitation_auth_result',
@@ -250,8 +269,7 @@ async function handleInvitation(
       : jsonResponse({ status: 'outcome_unknown' }, 202, origin, allowedOrigins);
   }
 
-  const authUser = inviteData?.user;
-  if (!authUser?.id || !authUser.email || normalizeEmail(authUser.email) !== action.email) {
+  if (!resultingAuthUserId) {
     const { data: recorded, error: recordError } = await serviceClient.rpc(
       'record_user_invitation_auth_result',
       {
@@ -270,7 +288,7 @@ async function handleInvitation(
     {
       target_invitation_id: request.invitation_id,
       result_status: 'accepted_by_auth',
-      resulting_auth_user_id: authUser.id,
+      resulting_auth_user_id: resultingAuthUserId,
     },
   );
   if (recordError || recorded !== true) {

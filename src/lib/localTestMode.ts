@@ -41,6 +41,7 @@ const school: School = {
   districtId: district.id,
   talukId: taluk.id,
   status: 'active',
+  ownerId: localUser.id,
 };
 
 const session: ScreeningSession = {

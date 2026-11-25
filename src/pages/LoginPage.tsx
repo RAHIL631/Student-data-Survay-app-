@@ -112,7 +112,7 @@ export function LoginPage() {
                 Backend not configured. Add your Supabase project URL and public anon key to a local <code>.env</code> file, then restart the app.
               </div>
             )}
-            {authError && <div role="alert" className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-800">{authError}</div>}
+            {authError && !error && <div role="alert" className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-800">{authError}</div>}
 
             <div>
               <label htmlFor="login-email" className="mb-1 block text-sm font-medium text-slate-700">Email</label>

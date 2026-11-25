@@ -5,6 +5,8 @@ import { AuthProvider } from './context/AuthProvider';
 import { useAuth } from './context/AuthContext';
 import { canAccessRoute } from './lib/permissions';
 import type { RouteKey } from './types';
+import { AdminDashboardPage } from './pages/AdminDashboardPage';
+import { AdminUsersPage } from './pages/AdminUsersPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { ScreeningSessionsPage } from './pages/ScreeningSessionsPage';
 import { StudentRegistrationPage } from './pages/StudentRegistrationPage';
@@ -21,8 +23,6 @@ import { ProfilePage } from './pages/ProfilePage';
 import { LoginPage } from './pages/LoginPage';
 import { AcceptInvitationPage } from './pages/AcceptInvitationPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
-import { AdminDashboardPage } from './pages/AdminDashboardPage';
-import { AdminUsersPage } from './pages/AdminUsersPage';
 
 function RoleDashboardPage() {
   const { user } = useAuth();

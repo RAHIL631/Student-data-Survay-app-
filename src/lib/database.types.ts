@@ -33,6 +33,7 @@ type ProfileRow = {
   role: 'organization_admin' | 'district_manager' | 'enumerator';
   district_id: string | null;
   is_active: boolean;
+  approval_status: 'pending' | 'approved';
   created_at: string;
   updated_at: string;
 };
@@ -197,6 +198,7 @@ type ProfileInsert = {
   full_name?: string;
   role: ProfileRow['role'];
   district_id?: string | null;
+  approval_status?: ProfileRow['approval_status'];
   created_at?: string;
   updated_at?: string;
 };
@@ -524,6 +526,10 @@ export type Database = {
         };
         Returns: Array<{ invitation_id: string | null; created: boolean; result_code: string }>;
       };
+      existing_auth_user_for_invitation: {
+        Args: { target_invitation_id: string };
+        Returns: string | null;
+      };
       claim_user_invitation_auth_request: {
         Args: { target_invitation_id: string };
         Returns: boolean;
@@ -547,8 +553,13 @@ export type Database = {
       };
       accept_user_invitation: {
         Args: { target_invitation_id: string; target_full_name: string };
+        Returns: 'pending_approval' | 'approved';
+      };
+      approve_enumerator_profile: {
+        Args: { target_profile_id: string };
         Returns: boolean;
       };
+      assign_school_owner: { Args: { target_school_id: string; target_enumerator_id: string }; Returns: boolean };
       set_profile_active: {
         Args: { target_profile_id: string; target_is_active: boolean };
         Returns: boolean;

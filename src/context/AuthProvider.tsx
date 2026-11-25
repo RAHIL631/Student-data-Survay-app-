@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AuthContext } from './AuthContext';
-import { getProfile, InactiveProfileError } from '../lib/dataService';
+import { getProfile, InactiveProfileError, PendingApprovalError } from '../lib/dataService';
+import { acceptInvitationWithClient, finishInvitationSession } from '../lib/invitationAcceptance.js';
+import { restoreInvitationSession } from '../lib/invitationCallback.js';
 import { supabase } from '../lib/supabase';
 import {
   endLocalTestSession,
@@ -35,6 +37,8 @@ function persistPasswordRecoveryState(isActive: boolean) {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Awaited<ReturnType<typeof getProfile>> | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [invitationCallbackError, setInvitationCallbackError] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [isPasswordRecoveryActive, setIsPasswordRecoveryActive] = useState(readPasswordRecoveryState);
   const profileLoadId = useRef(0);
@@ -50,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!supabase) {
       setPasswordRecoveryActive(false);
       setUser(restoreLocalTestSession());
+      setIsAuthReady(true);
       setIsLoading(false);
       return;
     }
@@ -85,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       } catch (error) {
         console.error('Unable to load the authenticated account profile.', error);
-        if (error instanceof InactiveProfileError) {
+        if (error instanceof InactiveProfileError || error instanceof PendingApprovalError) {
           await authClient.auth.signOut({ scope: 'local' });
         }
         if (active && requestId === profileLoadId.current) {
@@ -119,15 +124,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       void restoreProfile(session?.user.id ?? null);
     });
 
-    void authClient.auth.getSession().then(({ data, error }) => {
-      if (error) {
-        throw error;
+    void restoreInvitationSession(authClient.auth, window.location.href, {
+      getCurrentUrl: () => window.location.href,
+      replaceUrl: (url) => window.history.replaceState(window.history.state, '', url),
+    }).then(({ session, error: callbackError }) => {
+      if (active) {
+        setInvitationCallbackError(callbackError);
+        setIsAuthReady(true);
       }
-      return restoreProfile(data.session?.user.id ?? null);
+      return restoreProfile(session?.user?.id ?? null);
     }).catch((error: unknown) => {
       console.error('Unable to restore the Supabase session.', error);
       if (active) {
         setAuthError(error instanceof Error ? error.message : 'Unable to restore the Supabase session.');
+        setIsAuthReady(true);
         setIsLoading(false);
       }
     });
@@ -142,6 +152,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       user,
       isLoading,
+      isAuthReady,
+      invitationCallbackError,
       authError,
       isPasswordRecoveryActive,
       login: async (email: string, password: string) => {
@@ -149,7 +161,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           throw new Error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your local .env file.');
         }
 
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        // A restored session may have failed profile loading before the user
+        // explicitly signs in. Clear that stale warning so it cannot be
+        // displayed alongside the result of this sign-in attempt.
+        setAuthError(null);
+        const normalizedEmail = email.trim().toLowerCase();
+        const { data, error } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
         if (error) {
           throw new Error(error.message);
         }
@@ -158,7 +175,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           profile = await getProfile(data.user.id);
         } catch (profileError) {
-          if (profileError instanceof InactiveProfileError) {
+          if (profileError instanceof InactiveProfileError || profileError instanceof PendingApprovalError) {
             await supabase.auth.signOut({ scope: 'local' });
           }
           throw profileError;
@@ -172,7 +189,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           throw new Error('Supabase is not configured.');
         }
 
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        const normalizedEmail = email.trim().toLowerCase();
+        const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
           redirectTo: `${window.location.origin}/reset-password`,
         });
         if (error) {
@@ -228,86 +246,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!supabase) {
           throw new Error('Supabase is not configured.');
         }
-        const authClient = supabase;
-
-        const { data: { session }, error: sessionError } = await authClient.auth.getSession();
-        if (sessionError) {
-          throw new Error('The invitation session could not be verified. Sign out of other accounts and reopen the invitation in a private browser window.');
+        const { outcome } = await acceptInvitationWithClient(supabase, invitationId, fullName, password);
+        if (outcome === 'pending_approval') {
+          await finishInvitationSession(supabase);
+          profileLoadId.current += 1;
+          setUser(null);
+          setAuthError(null);
+          return outcome;
         }
-        if (!session) {
-          throw new Error('No invitation session is active. Sign out of other accounts, then reopen the invitation link in a private browser window.');
-        }
-
-        let passwordUpdated = false;
-        const verifyCurrentSession = async (expectedUserId: string, expectedEmail: string) => {
-          const { data: { session: currentSession }, error: currentSessionError } = await authClient.auth.getSession();
-          if (currentSessionError || !currentSession
-            || currentSession.user.id !== expectedUserId
-            || currentSession.user.email?.trim().toLowerCase() !== expectedEmail) {
-            const statusMessage = passwordUpdated
-              ? 'Your password was updated, but invitation acceptance was not confirmed.'
-              : 'No password was changed.';
-            throw new Error(`${statusMessage} This browser session changed during invitation setup. Reopen the original invitation in a private browser window.`);
-          }
-
-          const { data: { user: verifiedUser }, error: verifyError } = await authClient.auth.getUser(currentSession.access_token);
-          if (verifyError || !verifiedUser
-            || verifiedUser.id !== expectedUserId
-            || verifiedUser.email?.trim().toLowerCase() !== expectedEmail) {
-            throw new Error('The signed-in account could not be verified as the invited user. Sign out of other accounts and reopen the invitation in a private browser window.');
-          }
-        };
-
-        const { data: { user: verifiedUser }, error: verifyError } = await authClient.auth.getUser(session.access_token);
-        const expectedEmail = session.user.email?.trim().toLowerCase();
-        if (verifyError || !verifiedUser || !expectedEmail
-          || verifiedUser.id !== session.user.id
-          || verifiedUser.email?.trim().toLowerCase() !== expectedEmail) {
-          throw new Error('The active browser session does not match a verified invitation account. Sign out of other accounts and reopen the invitation in a private browser window.');
-        }
-
-        const { data: invitationVerified, error: preflightError } = await authClient.rpc(
-          'verify_user_invitation_context',
-          { target_invitation_id: invitationId },
-        );
-        if (preflightError || invitationVerified !== true) {
-          throw new Error('This invitation is not available for password setup, or we could not verify the current session. No password was changed. If you already completed setup, return to the sign-in page. Otherwise, sign out of other accounts and reopen the original invitation in a private browser window.');
-        }
-
-        await verifyCurrentSession(verifiedUser.id, expectedEmail);
-
-        const { error: passwordError } = await authClient.auth.updateUser({ password });
-        if (passwordError) {
-          throw new Error(passwordError.message);
-        }
-        passwordUpdated = true;
-
-        await verifyCurrentSession(verifiedUser.id, expectedEmail);
-
-        const { data, error } = await authClient.rpc('accept_user_invitation', {
-          target_invitation_id: invitationId,
-          target_full_name: fullName.trim(),
-        });
-        if (error) {
-          if (error.code === '23505') {
-            throw new Error('Your password was updated, but a profile already exists for this email. Do not request another invitation; contact an organization administrator to reconcile the account.');
-          }
-          if (error.code === '42501') {
-            throw new Error('Your password was updated, but this invitation was not accepted for the current session. Sign out of other accounts and reopen the original invitation in a private browser window. Do not request another invitation; ask an administrator to check its status if the problem continues.');
-          }
-          throw new Error(`Your password was updated, but invitation acceptance could not be confirmed (${error.code || 'database_error'}). Retry this same invitation if it is still pending; do not request another invitation. Contact an administrator if the result remains unclear.`);
-        }
-        if (data !== true) {
-          throw new Error('Your password was updated, but no invitation acceptance was confirmed. Retry this same invitation if it is still pending; do not request another invitation.');
-        }
-
-        const { error: signOutError } = await authClient.auth.signOut({ scope: 'local' });
-        if (signOutError) {
-          throw new Error('The invitation was accepted and your profile was created, but automatic sign-out failed. Your account is set up; sign out manually before returning to the sign-in page.');
-        }
+        await finishInvitationSession(supabase);
         profileLoadId.current += 1;
         setUser(null);
         setAuthError(null);
+        return outcome;
       },
       logout: async () => {
         if (!supabase) {
@@ -326,7 +277,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAuthError(null);
       },
     }),
-    [user, isLoading, authError, isPasswordRecoveryActive],
+    [user, isLoading, isAuthReady, invitationCallbackError, authError, isPasswordRecoveryActive],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

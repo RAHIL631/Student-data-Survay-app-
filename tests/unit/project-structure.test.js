@@ -35,13 +35,37 @@ test('entry points exist', () => {
     'src/main.tsx',
     'src/App.tsx',
     'src/lib/dataService.ts',
+    'src/pages/AdminDashboardPage.tsx',
+    'src/pages/AdminUsersPage.tsx',
     'supabase/migrations/002_live_backend.sql',
+    'supabase/migrations/20261206000000_enumerator_approval_contract.sql',
+    'supabase/migrations/20261208000000_school_workflow_compatibility.sql',
   ];
 
   for (const file of entryFiles) {
     const target = path.join(rootDir, file);
     assert.equal(fs.existsSync(target), true, `Missing file: ${file}`);
   }
+});
+
+test('administrator views are integrated into the unified frontend', () => {
+  const app = fs.readFileSync(path.join(rootDir, 'src/App.tsx'), 'utf8');
+  const layout = fs.readFileSync(path.join(rootDir, 'src/components/Layout.tsx'), 'utf8');
+  const permissions = fs.readFileSync(path.join(rootDir, 'src/lib/roleAccess.js'), 'utf8');
+  const packageJson = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
+
+  assert.match(app, /<Route path="\/users" element={<AdminUsersPage \/>} \/>/);
+  assert.match(app, /user\?\.role === 'organization_admin' \? <AdminDashboardPage \/> : <DashboardPage \/>/);
+  assert.match(layout, /to: '\/users', label: 'Staff & Access'/);
+  assert.match(permissions, /organization_admin: Object\.freeze\(\[[\s\S]*'users'/);
+  assert.equal(fs.existsSync(path.join(rootDir, 'supabase/functions/admin-provision-user')), false);
+  assert.equal(Object.keys(packageJson.scripts).some((script) => script.endsWith(':admin')), false);
+  assert.equal(fs.existsSync(path.join(rootDir, 'admin/index.html')), false);
+});
+
+test('local test sign-in is restricted to development builds', () => {
+  const localTestMode = fs.readFileSync(path.join(rootDir, 'src/lib/localTestMode.ts'), 'utf8');
+  assert.match(localTestMode, /import\.meta\.env\.DEV/);
 });
 
 test('demo data and placeholder backend clients are absent', () => {

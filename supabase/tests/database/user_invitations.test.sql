@@ -113,8 +113,8 @@ SELECT is(
     '20000000-0000-0000-0000-000000000101',
     '90000000-0000-0000-0000-000000000113'
   )),
-  'conflict',
-  'existing Auth account email is rejected without disclosing account details'
+  'created',
+  'profile-less existing Auth account can be invited without replacing its Auth identity'
 );
 SELECT is(
   (SELECT result_code FROM public.request_user_invitation(
@@ -196,8 +196,8 @@ SELECT throws_ok(
 SELECT is(
   (SELECT count(*)::INTEGER FROM public.user_invitations
    WHERE district_id = '20000000-0000-0000-0000-000000000101'),
-  2,
-  'viewer history includes only invitations in their district'
+  3,
+  'viewer history includes invitations in their district, including an existing Auth user'
 );
 SELECT is(
   (SELECT count(*)::INTEGER FROM public.user_invitations
@@ -207,7 +207,7 @@ SELECT is(
 );
 SELECT is(
   (SELECT count(*)::INTEGER FROM public.user_invitations),
-  2,
+  3,
   'viewer cannot read other-district or other-organization invitations'
 );
 SELECT is(
@@ -392,8 +392,8 @@ SELECT is(
   public.accept_user_invitation(
     current_setting('test.acceptance_invitation_id')::UUID, 'Enumerator Test'
   ),
-  TRUE,
-  'exact Auth user with confirmed matching email accepts invitation'
+  'pending_approval',
+  'Enumerator accepts and waits for administrator approval'
 );
 SELECT is(
   (SELECT count(*)::INTEGER FROM public.profiles
@@ -405,17 +405,53 @@ SELECT is(
   'acceptance creates profile using invitation scope and role'
 );
 SELECT is(
+  (SELECT count(*)::INTEGER FROM public.profiles
+   WHERE id = '00000000-0000-0000-0000-000000000106'),
+  1,
+  'pending Enumerator can read only their own pending profile for approval status'
+);
+SELECT is(
   (SELECT is_active FROM public.profiles
    WHERE id = '00000000-0000-0000-0000-000000000106'),
-  TRUE,
-  'accepted profile is active'
+  FALSE,
+  'accepted Enumerator cannot access the application before approval'
 );
 SELECT is(
   public.accept_user_invitation(
     current_setting('test.acceptance_invitation_id')::UUID, 'Enumerator Test'
   ),
+  'pending_approval',
+  'exact repeated acceptance is idempotent before approval'
+);
+RESET ROLE;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000101', true);
+SELECT set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000101","role":"authenticated"}', true);
+SELECT is(
+  public.approve_enumerator_profile('00000000-0000-0000-0000-000000000106'),
   TRUE,
-  'exact repeated acceptance is idempotent'
+  'active organization administrator approves a pending Enumerator in their organization'
+);
+RESET ROLE;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000102', true);
+SELECT set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000102","role":"authenticated"}', true);
+SELECT throws_ok(
+  $$SELECT public.approve_enumerator_profile('00000000-0000-0000-0000-000000000106')$$,
+  '42501',
+  NULL,
+  'Viewer cannot approve an Enumerator'
+);
+RESET ROLE;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000106', true);
+SELECT set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000106","role":"authenticated"}', true);
+SELECT is(
+  public.accept_user_invitation(
+    current_setting('test.acceptance_invitation_id')::UUID, 'Enumerator Test'
+  ),
+  'approved',
+  'accepted-and-approved invitation retries return approved status'
 );
 SELECT is(
   public.verify_user_invitation_context(
@@ -430,6 +466,19 @@ SELECT is(
    WHERE id = '00000000-0000-0000-0000-000000000106'),
   'Enumerator Test',
   'acceptance stores the name supplied by the invitee'
+);
+SELECT is(
+  (SELECT approval_status FROM public.profiles
+   WHERE id = '00000000-0000-0000-0000-000000000106'),
+  'approved',
+  'approval transition enables the Enumerator profile'
+);
+SELECT is(
+  (SELECT count(*)::INTEGER FROM public.audit_logs
+   WHERE action = 'account_approved'
+     AND record_id = '00000000-0000-0000-0000-000000000106'),
+  1,
+  'approval action is recorded in the audit log'
 );
 SELECT is(
   (SELECT status FROM public.user_invitations

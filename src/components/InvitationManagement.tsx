@@ -9,9 +9,11 @@ import {
 } from '../lib/dataService';
 import type { InvitationRole } from '../types';
 
-function describeInvitation(status: string, authStatus: string): string {
+function describeInvitation(status: string, authStatus: string, role: string): string {
   if (status === 'cancelled') return 'Cancelled — acceptance is blocked, though an already-sent Auth link may still open.';
-  if (status === 'accepted') return 'Accepted and profile provisioned.';
+  if (status === 'accepted') return role === 'enumerator'
+    ? 'Accepted; Enumerator access awaits administrator approval.'
+    : 'Accepted and profile provisioned.';
   if (status === 'failed') return 'Auth rejected the request; no profile was provisioned.';
   if (status === 'expired') return 'Expired by an authorized process.';
   if (authStatus === 'accepted_by_auth') return 'Auth accepted the invite request; email delivery is not verified.';
@@ -210,7 +212,7 @@ export function InvitationManagement() {
                   <tr key={invitation.id}>
                     <td>{invitation.email}</td>
                     <td>{invitation.role === 'district_manager' ? 'Viewer' : 'Screening faculty'}</td>
-                    <td>{describeInvitation(invitation.status, invitation.auth_status)}</td>
+                    <td>{describeInvitation(invitation.status, invitation.auth_status, invitation.role)}</td>
                     <td>{new Date(invitation.created_at).toLocaleString()}</td>
                     <td>
                       {canCancel && roleAllowed && (

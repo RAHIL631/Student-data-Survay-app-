@@ -25,10 +25,11 @@ export function AdminDashboardPage() {
   );
 
   const cards = [
-    { title: 'Student records', count: data.summary.studentCount, icon: Users },
-    { title: 'Screening sessions', count: data.summary.sessionCount, icon: ClipboardList },
-    { title: 'Districts', count: data.summary.districtCount, icon: MapPinned },
-    { title: 'Organization users', count: data.profiles.length, icon: School },
+    { title: 'Students screened', count: data.summary.studentCount, icon: Users, href: '/students' },
+    { title: 'Screening sessions', count: data.summary.sessionCount, icon: ClipboardList, href: '/screening-sessions' },
+    { title: 'Districts', count: data.summary.districtCount, icon: MapPinned, href: '/districts' },
+    { title: 'Organization users', count: data.profiles.length, icon: School, href: '/users' },
+    { title: 'Pending faculty approvals', count: data.profiles.filter((member) => member.role === 'enumerator' && member.approvalStatus === 'pending').length, icon: Users, href: '/users' },
   ];
 
   return <div className="space-y-6">
@@ -39,11 +40,11 @@ export function AdminDashboardPage() {
       <Link to="/users" className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-xl bg-cyan-500 px-4 py-2.5 font-semibold text-slate-950 hover:bg-cyan-400">Manage staff <ArrowRight size={17} /></Link>
     </section>
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      {cards.map(({ title, count, icon: Icon }) => <div key={title} className="card"><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</p><p className="mt-2 text-3xl font-bold text-slate-900">{count.toLocaleString()}</p></div><div className="rounded-xl bg-cyan-50 p-3 text-cyan-700"><Icon size={19} /></div></div></div>)}
+      {cards.map(({ title, count, icon: Icon, href }) => <Link key={title} to={href} className="card flex items-center justify-between gap-3 hover:border-cyan-300"><div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</p><p className="mt-2 text-3xl font-bold text-slate-900">{count.toLocaleString()}</p></div><div className="rounded-xl bg-cyan-50 p-3 text-cyan-700"><Icon size={19} /></div></Link>)}
     </div>
     <section className="card">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-lg font-semibold">Organization staff</h3><p className="mt-1 text-sm text-slate-500">Profiles visible to your organization account.</p></div><Link to="/users" className="text-sm font-semibold text-cyan-700 hover:underline">Manage staff</Link></div>
-      {data.profiles.length === 0 ? <p className="text-sm text-slate-500">No staff profiles are available.</p> : <div className="table-shell overflow-x-auto"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>District</th><th>Status</th></tr></thead><tbody>{data.profiles.map((member) => <tr key={member.id}><td>{member.name}</td><td>{member.email}</td><td>{getRoleLabel(member.role)}</td><td>{data.districts.find((district) => district.id === member.districtId)?.name ?? (member.districtId ? 'Assigned district' : 'Organization-wide')}</td><td>{member.isActive ? 'Active' : 'Inactive'}</td></tr>)}</tbody></table></div>}
+      {data.profiles.length === 0 ? <p className="text-sm text-slate-500">No staff profiles are available.</p> : <div className="table-shell overflow-x-auto"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>District</th><th>Status</th></tr></thead><tbody>{data.profiles.map((member) => <tr key={member.id}><td>{member.name}</td><td>{member.email}</td><td>{getRoleLabel(member.role)}</td><td>{data.districts.find((district) => district.id === member.districtId)?.name ?? (member.districtId ? 'Assigned district' : 'Organization-wide')}</td><td>{member.approvalStatus === 'pending' ? 'Awaiting approval' : member.isActive ? 'Active' : 'Inactive'}</td></tr>)}</tbody></table></div>}
     </section>
     <section className="grid gap-3 sm:grid-cols-2">
       {[

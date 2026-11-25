@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useRemoteData } from '../hooks/useRemoteData';
-import { getOrganizationProfiles, setProfileActive } from '../lib/dataService';
+import { approveEnumeratorProfile, getOrganizationProfiles, setProfileActive } from '../lib/dataService';
 
 export function AccountActivationManagement() {
   const { user } = useAuth();
@@ -20,6 +20,19 @@ export function AccountActivationManagement() {
     } catch (statusError) {
       console.error('Unable to change account status.', statusError);
       setActionError(statusError instanceof Error ? statusError.message : 'Account status could not be changed.');
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const approve = async (profileId: string) => {
+    setSavingId(profileId);
+    setActionError('');
+    try {
+      await approveEnumeratorProfile(profileId);
+      await reload();
+    } catch (approvalError) {
+      setActionError(approvalError instanceof Error ? approvalError.message : 'Account approval could not be completed.');
     } finally {
       setSavingId(null);
     }
@@ -45,9 +58,13 @@ export function AccountActivationManagement() {
                   <td>{profile.name}</td>
                   <td>{profile.email}</td>
                   <td className="capitalize">{profile.role.replace('_', ' ')}</td>
-                  <td>{profile.isActive ? 'Active' : 'Inactive'}</td>
+                  <td>{profile.approvalStatus === 'pending' ? 'Awaiting approval' : profile.isActive ? 'Active' : 'Inactive'}</td>
                   <td>
-                    {profile.id === user?.id ? <span className="text-slate-500">Current account</span> : (
+                    {profile.id === user?.id ? <span className="text-slate-500">Current account</span> : profile.approvalStatus === 'pending' ? (
+                      <button type="button" disabled={savingId === profile.id} onClick={() => void approve(profile.id)} className="font-medium text-emerald-700 underline disabled:opacity-50">
+                        {savingId === profile.id ? 'Approving…' : 'Approve Enumerator'}
+                      </button>
+                    ) : (
                       <button
                         type="button"
                         disabled={savingId === profile.id}

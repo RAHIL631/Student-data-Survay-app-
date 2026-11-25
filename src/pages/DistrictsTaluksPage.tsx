@@ -50,7 +50,7 @@ export function DistrictsTaluksPage() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-slate-900">Districts and Taluks</h2>
+      <div><h2 className="text-2xl font-bold text-slate-900">Districts and Taluks</h2><p className="mt-1 text-sm text-slate-600">Karnataka&apos;s 31 districts are preloaded for each organization. Add local taluks here before creating schools in them.</p></div>
       {(districtsError || taluksError) && (
         <div role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">
           Organization locations could not be loaded: {districtsError ?? taluksError}

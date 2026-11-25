@@ -1,6 +1,6 @@
 # `invite-user` Edge Function
 
-This function creates and cancels invitations using the existing invitation database functions. It is not deployed by this change.
+This function creates and cancels invitations using the existing invitation database functions. It is deployed to Supabase project `qghesdscscclbfevbypb`; the Vercel frontend is not deployed from this working tree.
 
 ## Security boundary
 
@@ -9,9 +9,10 @@ This function creates and cancels invitations using the existing invitation data
 - The service-role key is read only from the Edge Function runtime. It is never sent to or used by the browser.
 - A database claim must succeed before `inviteUserByEmail` is called. Retried requests cannot issue another Auth request for the same invitation.
 - Cancellation uses the caller's JWT and `cancel_user_invitation`; PostgreSQL checks the caller's current role and scope.
-- The acceptance RPC provisions a profile only for the exact Auth user recorded against the invitation, after confirmed email verification. It rejects cancelled invitations.
-- The SPA invitation page requires the recipient to choose and confirm a password. It updates the Auth account through `auth.updateUser` before calling the acceptance RPC; passwords are never written to application tables.
-- Invitation acceptance and cancellation do not delete orphaned Auth accounts. Resend and operator reconciliation are not implemented.
+- New Auth identities receive an invite email. If the email already belongs to an Auth identity with no application profile, a service-role-only database helper returns that existing UID and the function sends a recovery email for this exact invitation instead of creating a duplicate Auth user. Existing profiles remain a conflict.
+- The acceptance RPC provisions a profile only for the exact Auth user recorded against the invitation, after confirmed email verification. It rejects cancelled invitations. Enumerator profiles start pending/inactive and require an organization administrator to approve them.
+- The SPA invitation page requires the recipient to enter a full name and choose/confirm a password. It updates the existing Auth account through `auth.updateUser` before calling the acceptance RPC; passwords are never written to application tables. The RPC returns `pending_approval` or `approved` to match the frontend, and retries confirm the same accepted profile without creating duplicates.
+- Invitation acceptance and cancellation do not delete Auth accounts. Re-invitation uses the existing UID and a recovery email; resend for an already-active invitation is not implemented.
 
 ## Local development
 
@@ -51,6 +52,6 @@ Cancellation:
 
 The function returns only safe result codes. It does not disclose whether an Auth account already exists or log request emails, invitation links, tokens, credentials, or raw provider errors. A `202` result indicates an existing or uncertain operation; it is not confirmation of email delivery. Do not retry an uncertain Auth outcome or implement resend by calling `inviteUserByEmail` again.
 
-## Hosted rollout requirements
+## Hosted rollout and verification
 
-Before any hosted rollout, an owner must separately approve and perform the migration and function deployment. Configure the production SPA origin in `INVITE_ALLOWED_ORIGINS` and the Supabase Auth redirect allowlist first. Verify Auth email delivery, invitation-link expiration, monitoring, and rollback procedures in the hosted project. No hosted project was accessed or changed.
+The hosted project `qghesdscscclbfevbypb` has migrations `20261205000000` through `20261208000000` applied, and this function is deployed with JWT verification enabled. A no-credential endpoint check returned HTTP 401 as expected. The production SPA/Auth redirect allowlist and real email delivery have not been verified with a recipient link. The function defaults invitation redirects to `https://student-data-survay-app.vercel.app`; confirm that URL remains allowed in Supabase Auth before testing a real invitation. No Vercel deployment was performed.

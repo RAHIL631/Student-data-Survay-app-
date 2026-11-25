@@ -4,6 +4,8 @@ import type { AppUser } from '../types';
 export type AuthContextValue = {
   user: AppUser | null;
   isLoading: boolean;
+  isAuthReady: boolean;
+  invitationCallbackError: string | null;
   authError: string | null;
   isPasswordRecoveryActive: boolean;
   login: (email: string, password: string) => Promise<AppUser>;
@@ -11,7 +13,7 @@ export type AuthContextValue = {
   updatePassword: (password: string) => Promise<void>;
   finishPasswordRecovery: () => Promise<void>;
   loginAsLocalTestEnumerator: () => Promise<void>;
-  acceptInvitation: (invitationId: string, fullName: string, password: string) => Promise<void>;
+  acceptInvitation: (invitationId: string, fullName: string, password: string) => Promise<'pending_approval' | 'approved'>;
   logout: () => Promise<void>;
 };
 

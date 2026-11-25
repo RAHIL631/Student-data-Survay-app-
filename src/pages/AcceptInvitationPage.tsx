@@ -5,13 +5,14 @@ import { useAuth } from '../context/AuthContext';
 export function AcceptInvitationPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { acceptInvitation, isLoading } = useAuth();
+  const { acceptInvitation, invitationCallbackError, isAuthReady } = useAuth();
   const invitationId = searchParams.get('invitation_id');
   const [fullName, setFullName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
+  const [acceptedForApproval, setAcceptedForApproval] = useState(false);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     if (isSaving) {
@@ -40,8 +41,9 @@ export function AcceptInvitationPage() {
 
     setIsSaving(true);
     try {
-      await acceptInvitation(invitationId, fullName.trim(), password);
-      navigate('/login', { replace: true, state: { invitationAccepted: true } });
+      const result = await acceptInvitation(invitationId, fullName.trim(), password);
+      if (result === 'pending_approval') setAcceptedForApproval(true);
+      else navigate('/login', { replace: true, state: { invitationAccepted: true } });
     } catch (acceptError: unknown) {
       setError(acceptError instanceof Error ? acceptError.message : 'The invitation could not be accepted.');
     } finally {
@@ -53,8 +55,9 @@ export function AcceptInvitationPage() {
     <main className="flex min-h-screen items-center justify-center bg-slate-100 p-6">
       <section className="w-full max-w-lg rounded-2xl bg-white p-8 shadow-sm ring-1 ring-slate-200">
         <h1 className="text-2xl font-bold text-slate-900">Accept your invitation</h1>
-        {isLoading && <p role="status" className="mt-3 text-sm text-slate-600">Verifying your invitation…</p>}
-        {!isLoading && invitationId && (
+        {!isAuthReady && <p role="status" className="mt-3 text-sm text-slate-600">Verifying your invitation…</p>}
+        {acceptedForApproval && <div role="status" className="mt-5 space-y-4"><p className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900">Your account is set up and waiting for administrator approval. You’ll be able to sign in after approval.</p><Link to="/login" className="inline-flex min-h-11 items-center rounded-xl bg-cyan-700 px-4 py-2.5 font-semibold text-white">Return to sign in</Link></div>}
+        {isAuthReady && !acceptedForApproval && !invitationCallbackError && invitationId && (
           <form onSubmit={(event) => void handleSubmit(event)} className="mt-5 space-y-4">
             <p className="text-sm text-slate-600">Enter your name and choose a password to finish setting up your account.</p>
             <label className="block text-sm font-medium text-slate-700">
@@ -62,7 +65,8 @@ export function AcceptInvitationPage() {
               <input
                 type="text"
                 required
-                maxLength={200}
+                minLength={2}
+                maxLength={120}
                 autoComplete="name"
                 value={fullName}
                 onChange={(event) => setFullName(event.target.value)}
@@ -98,10 +102,16 @@ export function AcceptInvitationPage() {
             </button>
           </form>
         )}
-        {!isLoading && !invitationId && (
+        {isAuthReady && !acceptedForApproval && !invitationCallbackError && !invitationId && (
           <p role="alert" className="mt-4 rounded-xl bg-rose-50 p-4 text-sm text-rose-800">
             The invitation link is missing its invitation reference.
           </p>
+        )}
+        {isAuthReady && invitationCallbackError && (
+          <div className="mt-4 space-y-3">
+            <p role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">{invitationCallbackError}</p>
+            <Link to="/login" className="inline-block text-sm font-medium text-cyan-700 underline">Return to sign in</Link>
+          </div>
         )}
         {error && (
           <div className="mt-4 space-y-3">

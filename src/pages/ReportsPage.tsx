@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
 import { useRemoteData } from '../hooks/useRemoteData';
-import { getStudentRecords } from '../lib/dataService';
+import { getScreeningSessions, getStudentRecords } from '../lib/dataService';
 import { exportCsv } from '../lib/permissions';
 import { createStudentExportRows } from '../lib/studentExport.js';
 
 export function ReportsPage() {
   const { data: students, isLoading, error, reload } = useRemoteData(getStudentRecords);
+  const { data: sessions } = useRemoteData(getScreeningSessions);
   const [exportError, setExportError] = useState('');
   const [exporting, setExporting] = useState<'excel' | 'pdf' | null>(null);
   const reportStudents = students ?? [];
@@ -27,8 +28,8 @@ export function ReportsPage() {
     setExporting(format);
     try {
       const report = await import('../services/export/studentReport.js');
-      if (format === 'excel') await report.exportStudentExcel(reportStudents);
-      else await report.exportStudentPdf(reportStudents);
+      if (format === 'excel') await report.exportStudentExcel(reportStudents, sessions ?? []);
+      else await report.exportStudentPdf(reportStudents, sessions ?? []);
     } catch (error) {
       console.error(`Unable to create the ${format.toUpperCase()} screening report.`, error);
       setExportError(`The ${format.toUpperCase()} student health report could not be exported. Try again.`);

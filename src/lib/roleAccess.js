@@ -7,7 +7,7 @@ const roleRoutes = Object.freeze({
     'dashboard', 'screening-sessions', 'students', 'schools', 'districts', 'assignments', 'reports', 'profile',
   ]),
   enumerator: Object.freeze([
-    'dashboard', 'screening-sessions', 'student-registration', 'students', 'reports', 'profile',
+    'dashboard', 'screening-sessions', 'student-registration', 'students', 'schools', 'reports', 'profile',
   ]),
 });
 

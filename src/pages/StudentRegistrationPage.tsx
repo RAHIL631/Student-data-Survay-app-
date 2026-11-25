@@ -15,6 +15,8 @@ import { getLocalDateString } from '../lib/date';
 import { calculateAge, calculateBmi } from '../lib/permissions';
 import { isLocalTestSessionActive } from '../lib/localTestMode';
 import { canEditStudentScreening } from '../lib/roleAccess.js';
+import { getStudentRosters, markStudentRosterEntryComplete, saveStudentRoster } from '../lib/studentRosters.js';
+import type { StudentRoster } from '../lib/studentRosters.js';
 import type { StudentRecord } from '../types';
 
 const initialForm = {
@@ -87,6 +89,13 @@ export function StudentRegistrationPage() {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [studentRosters, setStudentRosters] = useState<StudentRoster[]>([]);
+  const [rosterDraftText, setRosterDraftText] = useState('');
+  const [rosterDraftFileName, setRosterDraftFileName] = useState('');
+  const [selectedRosterEntry, setSelectedRosterEntry] = useState<{ rosterId: string; entryId: string } | null>(null);
+  const [rosterBusy, setRosterBusy] = useState(false);
+  const [rosterNotice, setRosterNotice] = useState('');
+  const [rosterError, setRosterError] = useState('');
   const saveAnother = useRef(false);
   const initializedStudentId = useRef<string | null>(null);
   const pendingStudentId = useRef<string | null>(null);
@@ -112,6 +121,19 @@ export function StudentRegistrationPage() {
     && session.schoolId === form.schoolId,
   );
   const selectedSession = availableSessions.find((session) => session.id === form.sessionId);
+  useEffect(() => {
+    if (!user || !selectedSession || isEditing) {
+      setStudentRosters([]);
+      return;
+    }
+    let active = true;
+    void getStudentRosters(user.id, selectedSession.id)
+      .then((rosters) => { if (active) setStudentRosters(rosters); })
+      .catch((loadError: unknown) => {
+        if (active) setRosterError(loadError instanceof Error ? loadError.message : 'Saved student lists could not be loaded.');
+      });
+    return () => { active = false; };
+  }, [isEditing, selectedSession?.id, user?.id]);
   const screeningDate = isEditing ? existingStudent?.screeningDate ?? today : selectedSession?.date ?? today;
   const age = form.dateOfBirth ? calculateAge(form.dateOfBirth, screeningDate) : null;
   const bmi = heightCm !== null && weightKg !== null && heightCm > 0 && weightKg > 0
@@ -164,6 +186,7 @@ export function StudentRegistrationPage() {
   }, [form.sessionId, isEditing, sessions]);
 
   const handleChange = (key: keyof typeof initialForm, value: string) => {
+    if (key === 'studentName') setSelectedRosterEntry(null);
     if (key === 'siNumber' && pendingSiReservation.current?.siNumber !== value.trim()) {
       pendingSiReservation.current = null;
     }
@@ -172,25 +195,82 @@ export function StudentRegistrationPage() {
     setError('');
   };
 
+  const handleRosterUpload = async (file?: File) => {
+    if (!file) return;
+    setRosterBusy(true);
+    setRosterError('');
+    setRosterNotice('');
+    try {
+      const { extractStudentNamesFromPdf } = await import('../lib/studentListPdf');
+      const names = await extractStudentNamesFromPdf(file);
+      setRosterDraftFileName(file.name);
+      setRosterDraftText(names.join('\n'));
+      setRosterNotice(`${names.length} names extracted. Review the names before saving.`);
+    } catch (uploadError) {
+      setRosterError(uploadError instanceof Error ? uploadError.message : 'The PDF could not be read.');
+    } finally {
+      setRosterBusy(false);
+    }
+  };
+
+  const handleRosterSave = async () => {
+    if (!user || !selectedSession || !rosterDraftText.trim()) return;
+    setRosterBusy(true);
+    setRosterError('');
+    try {
+      const roster = await saveStudentRoster({
+        userId: user.id,
+        sessionId: selectedSession.id,
+        fileName: rosterDraftFileName || 'Manually prepared student list',
+        names: rosterDraftText.split(/\r?\n/),
+      });
+      setStudentRosters((current) => [roster, ...current]);
+      setRosterDraftText('');
+      setRosterDraftFileName('');
+      setRosterNotice(`${roster.entries.length} names saved in this browser for ${selectedSession.name}.`);
+    } catch (saveError) {
+      setRosterError(saveError instanceof Error ? saveError.message : 'The student list could not be saved.');
+    } finally {
+      setRosterBusy(false);
+    }
+  };
+
+  const selectRosterEntry = (value: string) => {
+    if (!value) {
+      setSelectedRosterEntry(null);
+      return;
+    }
+    const [rosterId, entryId] = value.split(':');
+    const entry = studentRosters.find((roster) => roster.id === rosterId)?.entries.find((candidate) => candidate.id === entryId);
+    if (!entry || entry.completedAt) return;
+    setSelectedRosterEntry({ rosterId, entryId });
+    setForm((current) => ({ ...current, studentName: entry.name }));
+    setSubmitted(false);
+  };
+
   const handleDistrictChange = (districtId: string) => {
+    setSelectedRosterEntry(null);
     setForm((current) => ({ ...current, districtId, talukId: '', schoolId: '', sessionId: '' }));
     setSubmitted(false);
     setError('');
   };
 
   const handleTalukChange = (talukId: string) => {
+    setSelectedRosterEntry(null);
     setForm((current) => ({ ...current, talukId, schoolId: '', sessionId: '' }));
     setSubmitted(false);
     setError('');
   };
 
   const handleSchoolChange = (schoolId: string) => {
+    setSelectedRosterEntry(null);
     setForm((current) => ({ ...current, schoolId, sessionId: '' }));
     setSubmitted(false);
     setError('');
   };
 
   const handleSessionChange = (sessionId: string) => {
+    setSelectedRosterEntry(null);
     const session = sessions?.find((candidate) => candidate.id === sessionId);
     setForm((current) => ({
       ...current,
@@ -300,6 +380,16 @@ export function StudentRegistrationPage() {
           student: record,
           siReservationKey: pendingSiReservation.current?.key,
         });
+        if (selectedRosterEntry) {
+          try {
+            await markStudentRosterEntryComplete(user.id, selectedRosterEntry.rosterId, selectedRosterEntry.entryId);
+            setStudentRosters(await getStudentRosters(user.id, sessionId));
+            setSelectedRosterEntry(null);
+          } catch (rosterUpdateError) {
+            console.error('Screening saved, but the local student list could not be updated.', rosterUpdateError);
+            setRosterError('Screening saved successfully, but this name could not be marked complete in the local list. Refresh before continuing.');
+          }
+        }
         pendingStudentId.current = null;
         pendingSiReservation.current = null;
       }
@@ -433,6 +523,35 @@ export function StudentRegistrationPage() {
             <p className="mt-2 text-xs text-cyan-900">The original screening location and session are retained when editing.</p>
           </div>
         )}
+        {!isEditing && <section className="space-y-3 rounded-xl border border-cyan-100 bg-cyan-50/50 p-4">
+          <div>
+            <h3 className="font-semibold text-slate-900">Student name list</h3>
+            <p className="mt-1 text-sm text-slate-600">Import a text based PDF, review the names, then select a student. The PDF and list stay in this browser and are not uploaded. Scanned PDFs need OCR and cannot be imported here.</p>
+          </div>
+          <label className="block text-sm font-medium text-slate-700">Upload student list PDF
+            <input type="file" accept="application/pdf,.pdf" disabled={!selectedSession || rosterBusy || isSaving} onChange={(event) => { void handleRosterUpload(event.target.files?.[0]); event.currentTarget.value = ''; }} className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2" />
+          </label>
+          {rosterDraftText && <div className="space-y-2">
+            <label className="block text-sm font-medium text-slate-700">Review names · one student per line
+              <textarea rows={6} maxLength={200000} value={rosterDraftText} onChange={(event) => setRosterDraftText(event.target.value)} disabled={rosterBusy} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 font-normal" />
+            </label>
+            <button type="button" onClick={() => void handleRosterSave()} disabled={rosterBusy || !selectedSession || !rosterDraftText.trim()} className="rounded-xl bg-cyan-700 px-4 py-2 font-semibold text-white disabled:opacity-50">{rosterBusy ? 'Saving list…' : 'Save reviewed list'}</button>
+          </div>}
+          <label className="block text-sm font-medium text-slate-700">Choose a name from a saved list
+            <select value={selectedRosterEntry ? `${selectedRosterEntry.rosterId}:${selectedRosterEntry.entryId}` : ''} onChange={(event) => selectRosterEntry(event.target.value)} disabled={rosterBusy || isSaving || !selectedSession} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+              <option value="">No list selection · enter the name manually</option>
+              {studentRosters.map((roster) => {
+                const entries = roster.entries.filter((entry) => !entry.completedAt);
+                if (!entries.length) return null;
+                return <optgroup key={roster.id} label={`${roster.fileName} · ${entries.length} remaining`}>
+                  {entries.map((entry) => <option key={entry.id} value={`${roster.id}:${entry.id}`}>{entry.name}</option>)}
+                </optgroup>;
+              })}
+            </select>
+          </label>
+          {rosterNotice && <p role="status" className="text-sm text-emerald-800">{rosterNotice}</p>}
+          {rosterError && <p role="alert" className="text-sm text-rose-800">{rosterError}</p>}
+        </section>}
         <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600">Student information</h3>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <label className="text-sm font-medium text-slate-700">SI Number<input value={form.siNumber} onChange={(event) => handleChange('siNumber', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" /></label>

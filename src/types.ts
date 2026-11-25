@@ -10,8 +10,15 @@ export type AppUser = {
   name: string;
   email: string;
   role: Role;
+  isActive?: boolean;
+  approvalStatus?: 'pending' | 'approved';
   districtId?: string;
   schoolIds?: string[];
+};
+
+export type OwnerDataGrant = {
+  viewerId: string;
+  ownerId: string;
 };
 
 export type District = {
@@ -30,6 +37,7 @@ export type Taluk = {
 
 export type School = {
   id: string;
+  ownerId?: string | null;
   name: string;
   code: string;
   districtId: string;
@@ -39,6 +47,7 @@ export type School = {
 
 export type ScreeningSession = {
   id: string;
+  ownerId?: string | null;
   name: string;
   districtId: string;
   districtName: string;
@@ -82,6 +91,45 @@ export type StudentRecord = {
   schoolName: string;
   screeningDate: string;
   status: StudentScreeningStatus;
+};
+
+export type PendingStudentSubmissionData = {
+  organizationId: string;
+  userId: string;
+  sessionId: string;
+  student: StudentRecord;
+  studentRosterId?: string;
+  studentRosterEntryId?: string;
+};
+
+export type PendingStudentSubmission = {
+  localId: string;
+  idempotencyKey: string;
+  data: PendingStudentSubmissionData;
+  createdAt: string;
+  syncStatus: 'pending' | 'syncing' | 'synced' | 'failed' | 'conflict' | 'resolved';
+  attemptCount: number;
+  nextRetryAt?: string;
+  retryable?: boolean;
+  lastError?: string;
+  syncToken?: string;
+  leaseExpiresAt?: string;
+  syncedAt?: string;
+  conflictType?: 'server_record_changed' | 'si_number_conflict' | 'duplicate_unverified';
+  conflictMessage?: string;
+  serverRecord?: {
+    id: string;
+    studentName: string;
+    siNumber: string;
+    dateOfBirth: string | null;
+    sessionId: string | null;
+    screeningDate: string;
+    status: string;
+    heightCm: number | null;
+    weightKg: number | null;
+  };
+  resolution?: 'keep_server';
+  resolvedAt?: string;
 };
 
 export type AuditLog = {

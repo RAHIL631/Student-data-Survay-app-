@@ -438,8 +438,8 @@ SELECT is(public.current_profile_is_active(), TRUE, 'organization administrator 
 SELECT is(public.current_profile_organization_id(), '10000000-0000-0000-0000-000000000001'::UUID, 'organization administrator profile resolves the expected organization');
 SELECT is(
   (SELECT count(*)::integer FROM public.districts),
-  2,
-  'organization admin can read all districts in their organization'
+  33,
+  'organization admin can read existing and seeded districts in their organization'
 );
 SELECT is(
   (SELECT count(*)::integer FROM public.profiles),

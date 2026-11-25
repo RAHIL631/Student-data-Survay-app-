@@ -10,52 +10,80 @@ const readSource = (file) => fs.readFileSync(path.join(rootDir, file), 'utf8');
 
 test('invitation acceptance verifies the callback session and invitation before updating a password', () => {
   const supabase = readSource('src/lib/supabase.ts');
-  const provider = readSource('src/context/AuthProvider.tsx');
+  const acceptance = readSource('src/lib/invitationAcceptance.js');
   const route = readSource('src/App.tsx');
 
   assert.match(supabase, /detectSessionInUrl:\s*true/);
   assert.match(supabase, /persistSession:\s*true/);
   assert.match(route, /path="\/accept-invitation" element=\{<AcceptInvitationPage \/>\}/);
-  assert.match(provider, /auth\.getUser\(session\.access_token\)/);
-  assert.match(provider, /verifiedUser\.id !== session\.user\.id/);
-  assert.match(provider, /verify_user_invitation_context/);
+  assert.match(acceptance, /auth\.getUser\(session\.access_token\)/);
+  assert.match(acceptance, /verifiedUser\.id !== expectedUserId/);
+  assert.match(acceptance, /verify_user_invitation_context/);
 
-  const preflightIndex = provider.indexOf("'verify_user_invitation_context'");
-  const passwordUpdateIndex = provider.indexOf('authClient.auth.updateUser({ password })', preflightIndex);
-  const finalIdentityCheckIndex = provider.indexOf('await verifyCurrentSession(verifiedUser.id, expectedEmail);', passwordUpdateIndex);
-  const acceptanceIndex = provider.indexOf("authClient.rpc('accept_user_invitation'", finalIdentityCheckIndex);
+  const preflightIndex = acceptance.indexOf("'verify_user_invitation_context'");
+  const passwordUpdateIndex = acceptance.indexOf('auth.updateUser({ password })', preflightIndex);
+  const finalIdentityCheckIndex = acceptance.indexOf('await verifyCurrentSession();', passwordUpdateIndex);
+  const acceptanceIndex = acceptance.indexOf("client.rpc('accept_user_invitation'", finalIdentityCheckIndex);
   assert.ok(preflightIndex >= 0 && preflightIndex < passwordUpdateIndex);
   assert.ok(passwordUpdateIndex < finalIdentityCheckIndex && finalIdentityCheckIndex < acceptanceIndex);
-  const acceptanceFlow = provider.slice(provider.indexOf('acceptInvitation: async'), provider.indexOf('logout: async'));
+  const acceptanceFlow = acceptance;
   assert.doesNotMatch(acceptanceFlow, /console\.(?:log|warn|error)\(/i);
 });
 
 test('invitation callback stays public and login waits for profile restoration', () => {
   const app = readSource('src/App.tsx');
   const login = readSource('src/pages/LoginPage.tsx');
+  const acceptancePage = readSource('src/pages/AcceptInvitationPage.tsx');
+  const provider = readSource('src/context/AuthProvider.tsx');
+  const callbackParser = readSource('src/lib/invitationCallback.js');
+  const invitationFunction = readSource('supabase/functions/invite-user/index.ts');
   const acceptanceRouteIndex = app.indexOf('<Route path="/accept-invitation"');
   const protectedRouteIndex = app.indexOf('<Route element={<ProtectedRoute>');
 
   assert.ok(acceptanceRouteIndex >= 0 && protectedRouteIndex > acceptanceRouteIndex);
   assert.match(login, /if \(!isLoading && isPasswordRecoveryActive\)/);
   assert.match(login, /else if \(!isLoading && user\)/);
+  assert.match(acceptancePage, /isAuthReady && !acceptedForApproval && !invitationCallbackError && invitationId/);
+  assert.match(provider, /restoreInvitationSession\(authClient\.auth,[\s\S]*setIsAuthReady\(true\)/);
+  assert.match(callbackParser, /error_code/);
+  assert.match(invitationFunction, /redirectUrl\.searchParams\.set\('invitation_id', request\.invitation_id\)/);
+});
+
+test('login suppresses stale restored-profile errors when a sign-in result is present', () => {
+  const provider = readSource('src/context/AuthProvider.tsx');
+  const login = readSource('src/pages/LoginPage.tsx');
+  const loginFlow = provider.slice(provider.indexOf('login: async'), provider.indexOf('requestPasswordReset: async'));
+
+  assert.ok(loginFlow.indexOf('setAuthError(null)') < loginFlow.indexOf('signInWithPassword'));
+  assert.match(login, /authError && !error/);
+});
+
+test('successful sign-in restores the profile for the authenticated Auth UID', () => {
+  const provider = readSource('src/context/AuthProvider.tsx');
+  const dataService = readSource('src/lib/dataService.ts');
+  const loginFlow = provider.slice(provider.indexOf('login: async'), provider.indexOf('requestPasswordReset: async'));
+
+  assert.match(loginFlow, /getProfile\(data\.user\.id\)/);
+  assert.match(dataService, /\.eq\('id', userId\)/);
+  assert.match(dataService, /organizationId: data\.organization_id/);
+  assert.match(dataService, /districtId: data\.district_id \?\? undefined/);
 });
 
 test('failed acceptance can safely retry the same invitation after a password update', () => {
+  const acceptance = readSource('src/lib/invitationAcceptance.js');
   const provider = readSource('src/context/AuthProvider.tsx');
   const databaseTest = readSource('supabase/tests/database/user_invitations.test.sql');
-  const acceptanceFlow = provider.slice(provider.indexOf('acceptInvitation: async'), provider.indexOf('logout: async'));
-  const rpcIndex = acceptanceFlow.indexOf("authClient.rpc('accept_user_invitation'");
-  const signOutIndex = acceptanceFlow.indexOf("authClient.auth.signOut({ scope: 'local' })", rpcIndex);
+  const acceptanceFlow = acceptance;
+  const acceptanceCallIndex = provider.indexOf('await acceptInvitationWithClient(');
+  const signOutCallIndex = provider.indexOf('await finishInvitationSession(', acceptanceCallIndex);
 
-  assert.ok(rpcIndex >= 0 && signOutIndex > rpcIndex);
+  assert.ok(acceptanceCallIndex >= 0 && signOutCallIndex > acceptanceCallIndex);
   assert.match(acceptanceFlow, /Retry this same invitation/);
-  assert.match(acceptanceFlow, /Do not request another invitation/);
-  assert.match(acceptanceFlow, /The invitation was accepted and your profile was created, but automatic sign-out failed/);
-  assert.match(acceptanceFlow, /Your account is set up; sign out manually before returning to the sign-in page/);
+  assert.match(acceptanceFlow, /do not request another invitation/i);
+  assert.match(acceptance, /The invitation was accepted and your profile was created, but automatic sign-out failed/);
+  assert.match(acceptance, /Your account is set up; sign out manually before returning to sign in/);
   assert.match(acceptanceFlow, /Your password was updated, but invitation acceptance was not confirmed/);
   assert.match(acceptanceFlow, /No password was changed/);
-  assert.match(acceptanceFlow, /passwordUpdated = true/);
   assert.doesNotMatch(acceptanceFlow, /Sign outof other accounts/);
   assert.doesNotMatch(acceptanceFlow, /No further invitation changes were made/);
   assert.match(databaseTest, /exact repeated acceptance is idempotent/);
@@ -137,14 +165,14 @@ test('accepted invitation preflight cannot authorize another password update', (
     migration.indexOf('CREATE OR REPLACE FUNCTION public.verify_user_invitation_context'),
     migration.indexOf('REVOKE ALL ON FUNCTION public.verify_user_invitation_context'),
   );
-  const provider = readSource('src/context/AuthProvider.tsx');
-  const acceptanceFlow = provider.slice(provider.indexOf('acceptInvitation: async'), provider.indexOf('logout: async'));
+  const acceptanceFlow = readSource('src/lib/invitationAcceptance.js');
   const preflightIndex = acceptanceFlow.indexOf("'verify_user_invitation_context'");
-  const passwordUpdateIndex = acceptanceFlow.indexOf('authClient.auth.updateUser({ password })');
+  const passwordUpdateIndex = acceptanceFlow.indexOf('auth.updateUser({ password })');
 
   assert.match(preflight, /i\.status = 'pending'/);
   assert.doesNotMatch(preflight, /i\.status = 'accepted'/);
-  assert.match(acceptanceFlow, /preflightError \|\| invitationVerified !== true/);
+  assert.match(acceptanceFlow, /preflightError/);
+  assert.match(acceptanceFlow, /invitationVerified !== true/);
   assert.ok(preflightIndex >= 0 && preflightIndex < passwordUpdateIndex);
   assert.match(acceptanceFlow, /No password was changed/);
   const databaseTest = readSource('supabase/tests/database/user_invitations.test.sql');

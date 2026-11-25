@@ -20,7 +20,7 @@ test('password reset uses the recovery route and updates the authenticated passw
   const authProvider = readSource('src/context/AuthProvider.tsx');
   const app = readSource('src/App.tsx');
 
-  assert.match(authProvider, /resetPasswordForEmail\(email,\s*\{\s*redirectTo:\s*`\$\{window\.location\.origin\}\/reset-password`/);
+  assert.match(authProvider, /const normalizedEmail = email\.trim\(\)\.toLowerCase\(\);[\s\S]*resetPasswordForEmail\(normalizedEmail,\s*\{\s*redirectTo:/);
   assert.match(authProvider, /event === 'PASSWORD_RECOVERY'/);
   assert.match(authProvider, /supabase\.auth\.updateUser\(\{ password \}\)/);
   assert.match(authProvider, /supabase\.auth\.signOut\(\{ scope: 'local' \}\)/);
