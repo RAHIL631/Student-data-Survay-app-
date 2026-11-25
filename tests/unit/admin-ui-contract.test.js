@@ -74,6 +74,24 @@ test('approval uses the authenticated database RPC and only approved active Enum
   assert.match(migration, /INSERT INTO public\.audit_logs/);
 });
 
+test('screening faculty choices require approved active Enumerators', () => {
+  const page = readSource('src/pages/ScreeningSessionsPage.tsx');
+  const service = readSource('src/lib/dataService.ts');
+  const migration = readSource('supabase/migrations/20261209000000_require_approved_enumerator_activation.sql');
+  assert.match(page, /member\.role === 'enumerator' && member\.isActive && member\.approvalStatus === 'approved'/);
+  assert.match(service, /\.eq\('is_active', true\)[\s\S]*\.eq\('approval_status', 'approved'\)/);
+  assert.match(migration, /profiles_enumerator_activation_requires_approval/);
+  assert.match(migration, /target_profile\.approval_status <> 'approved'/);
+});
+
+test('screening session choices require an active school assigned to approved faculty', () => {
+  const page = readSource('src/pages/ScreeningSessionsPage.tsx');
+  assert.match(page, /const availableSchools = activeSchools\.filter/);
+  assert.match(page, /activeFacultyIds\.has\(school\.ownerId \?\? ''\)/);
+  assert.match(page, /const schoolChoices = availableSchools;/);
+  assert.match(page, /const school = availableSchools\.find/);
+});
+
 test('staff page uses existing invitation and account activation workflows', () => {
   const page = readSource('src/pages/AdminUsersPage.tsx');
   const invitations = readSource('src/components/InvitationManagement.tsx');

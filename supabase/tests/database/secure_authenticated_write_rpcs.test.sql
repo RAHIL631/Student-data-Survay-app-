@@ -7,8 +7,9 @@ VALUES
  ('91000000-0000-0000-0000-000000000001','authenticated','authenticated','write-admin@example.test','',now(),now(),now(),'{}','{}'),
  ('91000000-0000-0000-0000-000000000002','authenticated','authenticated','write-enum-a@example.test','',now(),now(),now(),'{}','{}'),
  ('91000000-0000-0000-0000-000000000003','authenticated','authenticated','write-enum-b@example.test','',now(),now(),now(),'{}','{}'),
- ('91000000-0000-0000-0000-000000000004','authenticated','authenticated','write-viewer@example.test','',now(),now(),now(),'{}','{}'),
- ('91000000-0000-0000-0000-000000000005','authenticated','authenticated','write-inactive@example.test','',now(),now(),now(),'{}','{}');
+  ('91000000-0000-0000-0000-000000000004','authenticated','authenticated','write-viewer@example.test','',now(),now(),now(),'{}','{}'),
+  ('91000000-0000-0000-0000-000000000005','authenticated','authenticated','write-inactive@example.test','',now(),now(),now(),'{}','{}'),
+  ('91000000-0000-0000-0000-000000000006','authenticated','authenticated','write-pending@example.test','',now(),now(),now(),'{}','{}');
 INSERT INTO public.organizations (id, name) VALUES
  ('92000000-0000-0000-0000-000000000001','Write RPC org'),
  ('92000000-0000-0000-0000-000000000002','Write RPC other org');
@@ -22,6 +23,8 @@ INSERT INTO public.profiles (id, organization_id, district_id, email, full_name,
  ('91000000-0000-0000-0000-000000000003','92000000-0000-0000-0000-000000000001','93000000-0000-0000-0000-000000000001','write-enum-b@example.test','Write Enum B','enumerator',TRUE),
  ('91000000-0000-0000-0000-000000000004','92000000-0000-0000-0000-000000000001','93000000-0000-0000-0000-000000000001','write-viewer@example.test','Write Viewer','district_manager',TRUE),
  ('91000000-0000-0000-0000-000000000005','92000000-0000-0000-0000-000000000001','93000000-0000-0000-0000-000000000001','write-inactive@example.test','Inactive Enum','enumerator',FALSE);
+INSERT INTO public.profiles (id, organization_id, district_id, email, full_name, role, is_active, approval_status)
+VALUES ('91000000-0000-0000-0000-000000000006','92000000-0000-0000-0000-000000000001','93000000-0000-0000-0000-000000000001','write-pending@example.test','Pending Enum','enumerator',FALSE,'pending');
 INSERT INTO public.taluks (id, organization_id, district_id, name) VALUES
  ('94000000-0000-0000-0000-000000000001','92000000-0000-0000-0000-000000000001','93000000-0000-0000-0000-000000000001','Write taluk'),
  ('94000000-0000-0000-0000-000000000002','92000000-0000-0000-0000-000000000001','93000000-0000-0000-0000-000000000002','Other taluk'),
@@ -34,6 +37,11 @@ INSERT INTO public.schools (id, organization_id, district_id, taluk_id, name, co
 SELECT set_config('request.jwt.claim.sub','91000000-0000-0000-0000-000000000001',TRUE);
 SELECT set_config('request.jwt.claims','{"sub":"91000000-0000-0000-0000-000000000001","role":"authenticated"}',TRUE);
 SET LOCAL ROLE authenticated;
+SELECT throws_ok(
+  $$SELECT public.set_profile_active('91000000-0000-0000-0000-000000000006', TRUE)$$,
+  '42501', NULL,
+  'administrator cannot activate an Enumerator before approval'
+);
 SELECT lives_ok($$SELECT public.create_school_secure('{"district_id":"93000000-0000-0000-0000-000000000001","taluk_id":"94000000-0000-0000-0000-000000000001","name":"RPC School","code":"RPC-SCH"}'::jsonb)$$,'active organization administrator can create a same-organization school');
 SELECT throws_ok($$SELECT public.create_school_secure('{"district_id":"93000000-0000-0000-0000-000000000003","taluk_id":"94000000-0000-0000-0000-000000000003","name":"Cross Org","code":"X-SCH"}'::jsonb)$$,'42501',NULL,'administrator cannot create a school in another organization');
 SELECT lives_ok($$SELECT public.assign_school_owner('95000000-0000-0000-0000-000000000001','91000000-0000-0000-0000-000000000002')$$,'administrator can assign a school to an active same-district Enumerator');

@@ -40,6 +40,7 @@ test('entry points exist', () => {
     'supabase/migrations/002_live_backend.sql',
     'supabase/migrations/20261206000000_enumerator_approval_contract.sql',
     'supabase/migrations/20261208000000_school_workflow_compatibility.sql',
+    'supabase/migrations/20261209000000_require_approved_enumerator_activation.sql',
   ];
 
   for (const file of entryFiles) {

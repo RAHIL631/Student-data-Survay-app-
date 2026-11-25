@@ -17,4 +17,5 @@ test('Karnataka district migration seeds the current canonical 31 districts once
   assert.ok(districts.some(([, name]) => name === 'Bengaluru South'));
   assert.ok(districts.some(([, name]) => name === 'Vijayanagara'));
   assert.ok(!districts.some(([, name]) => name === 'Ramanagara'));
+  assert.match(migration, /row_number\(\) OVER \([\s\S]*PARTITION BY candidates\.organization_id, candidates\.canonical_code/);
 });

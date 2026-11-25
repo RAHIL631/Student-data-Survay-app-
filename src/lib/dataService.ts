@@ -385,9 +385,10 @@ export async function getEnumerators(): Promise<AppUser[]> {
 
   const { data, error } = await requireSupabase()
     .from('profiles')
-    .select('id, organization_id, email, full_name, role, district_id')
+    .select('id, organization_id, email, full_name, role, district_id, approval_status')
     .eq('role', 'enumerator')
     .eq('is_active', true)
+    .eq('approval_status', 'approved')
     .order('full_name');
 
   throwIfError(error);
@@ -398,6 +399,8 @@ export async function getEnumerators(): Promise<AppUser[]> {
     name: row.full_name,
     role: row.role,
     districtId: row.district_id ?? undefined,
+    isActive: true,
+    approvalStatus: row.approval_status,
   }));
 }
 

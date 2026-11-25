@@ -72,24 +72,38 @@ REVOKE ALL ON FUNCTION public.seed_karnataka_districts_after_organization_insert
 UPDATE public.districts AS existing
 SET name = alias.canonical_name,
     code = alias.canonical_code
-FROM (VALUES
-  ('Bagalkot', 'Bagalkote', 'KA-BGK'),
-  ('Bellary', 'Ballari', 'KA-BAL'),
-  ('Belgaum', 'Belagavi', 'KA-BEL'),
-  ('Bangalore Rural', 'Bengaluru Rural', 'KA-BRU'),
-  ('Ramanagara', 'Bengaluru South', 'KA-BSO'),
-  ('Bangalore Urban', 'Bengaluru Urban', 'KA-BUR'),
-  ('Chickballapur', 'Chikkaballapura', 'KA-CHI'),
-  ('Chikmagalur', 'Chikkamagaluru', 'KA-CHM'),
-  ('Davangere', 'Davanagere', 'KA-DAV'),
-  ('Gulbarga', 'Kalaburagi', 'KA-KAL'),
-  ('Mysore', 'Mysuru', 'KA-MYS'),
-  ('Shimoga', 'Shivamogga', 'KA-SHI'),
-  ('Tumkur', 'Tumakuru', 'KA-TUM'),
-  ('Bijapur', 'Vijayapura', 'KA-VIJ'),
-  ('Vijapura', 'Vijayapura', 'KA-VIJ')
-) AS alias(legacy_name, canonical_name, canonical_code)
-WHERE lower(btrim(existing.name)) = lower(alias.legacy_name)
+FROM (
+  SELECT candidates.*,
+    row_number() OVER (
+      PARTITION BY candidates.organization_id, candidates.canonical_code
+      ORDER BY candidates.id
+    ) AS canonical_rank
+  FROM (
+    SELECT existing.id, existing.organization_id,
+      aliases.canonical_name, aliases.canonical_code
+    FROM public.districts AS existing
+    JOIN (VALUES
+      ('Bagalkot', 'Bagalkote', 'KA-BGK'),
+      ('Bellary', 'Ballari', 'KA-BAL'),
+      ('Belgaum', 'Belagavi', 'KA-BEL'),
+      ('Bangalore Rural', 'Bengaluru Rural', 'KA-BRU'),
+      ('Ramanagara', 'Bengaluru South', 'KA-BSO'),
+      ('Bangalore Urban', 'Bengaluru Urban', 'KA-BUR'),
+      ('Chickballapur', 'Chikkaballapura', 'KA-CHI'),
+      ('Chikmagalur', 'Chikkamagaluru', 'KA-CHM'),
+      ('Davangere', 'Davanagere', 'KA-DAV'),
+      ('Gulbarga', 'Kalaburagi', 'KA-KAL'),
+      ('Mysore', 'Mysuru', 'KA-MYS'),
+      ('Shimoga', 'Shivamogga', 'KA-SHI'),
+      ('Tumkur', 'Tumakuru', 'KA-TUM'),
+      ('Bijapur', 'Vijayapura', 'KA-VIJ'),
+      ('Vijapura', 'Vijayapura', 'KA-VIJ')
+    ) AS aliases(legacy_name, canonical_name, canonical_code)
+      ON lower(btrim(existing.name)) = lower(aliases.legacy_name)
+  ) AS candidates
+) AS alias
+WHERE existing.id = alias.id
+  AND alias.canonical_rank = 1
   AND NOT EXISTS (
     SELECT 1 FROM public.districts AS canonical
     WHERE canonical.organization_id = existing.organization_id

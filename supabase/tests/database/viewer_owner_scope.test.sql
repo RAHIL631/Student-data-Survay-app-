@@ -97,65 +97,72 @@ VALUES (
 )
 RETURNING set_config('test.session_two_id', id::TEXT, true);
 
+INSERT INTO public.session_assignments (organization_id, session_id, enumerator_id)
+VALUES
+  ('10000000-0000-0000-0000-000000000001', current_setting('test.session_one_id')::UUID, '00000000-0000-0000-0000-000000000003'),
+  ('10000000-0000-0000-0000-000000000001', current_setting('test.session_two_id')::UUID, '00000000-0000-0000-0000-000000000004');
+
+SELECT set_config('test.student_one_key', '60000000-0000-0000-0000-000000000001', true);
+SELECT set_config('test.student_two_key', '60000000-0000-0000-0000-000000000002', true);
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000003', true);
+SELECT set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000003","role":"authenticated"}', true);
+SET LOCAL ROLE authenticated;
 SELECT set_config(
-  'test.student_one_key',
-  '60000000-0000-0000-0000-000000000001',
-  true
-);
-SELECT set_config(
-  'test.student_one_si',
+  'test.student_one_reservation_id',
   public.reserve_student_si_number(
     current_setting('test.session_one_id')::UUID,
-    '60000000-0000-0000-0000-000000000001'
+    'SI-OWNER-ONE',
+    '61000000-0000-0000-0000-000000000001'::UUID,
+    current_setting('test.student_one_key')::UUID
+  )::TEXT,
+  true
+);
+SELECT public.create_student_screening_secure(
+  current_setting('test.student_one_key')::UUID,
+  jsonb_build_object(
+    'session_id', current_setting('test.session_one_id'),
+    'si_number', 'SI-OWNER-ONE', 'student_name', 'Student One',
+    'class_name', '5', 'section', 'A', 'sex', 'Other',
+    'date_of_birth', '2015-01-01', 'age', 10, 'height_cm', 130,
+    'weight_kg', 30, 'bmi', 17.75, 'screening_date', CURRENT_DATE::TEXT
   ),
-  true
+  current_setting('test.student_one_reservation_id')::UUID
 );
+
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000004', true);
+SELECT set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000004","role":"authenticated"}', true);
 SELECT set_config(
-  'test.student_two_key',
-  '60000000-0000-0000-0000-000000000002',
-  true
-);
-SELECT set_config(
-  'test.student_two_si',
+  'test.student_two_reservation_id',
   public.reserve_student_si_number(
     current_setting('test.session_two_id')::UUID,
-    '60000000-0000-0000-0000-000000000002'
-  ),
+    'SI-OWNER-TWO',
+    '61000000-0000-0000-0000-000000000002'::UUID,
+    current_setting('test.student_two_key')::UUID
+  )::TEXT,
   true
 );
+SELECT public.create_student_screening_secure(
+  current_setting('test.student_two_key')::UUID,
+  jsonb_build_object(
+    'session_id', current_setting('test.session_two_id'),
+    'si_number', 'SI-OWNER-TWO', 'student_name', 'Student Two',
+    'class_name', '5', 'section', 'A', 'sex', 'Other',
+    'date_of_birth', '2015-01-01', 'age', 10, 'height_cm', 130,
+    'weight_kg', 30, 'bmi', 17.75, 'screening_date', CURRENT_DATE::TEXT
+  ),
+  current_setting('test.student_two_reservation_id')::UUID
+);
 
-INSERT INTO public.student_screenings (
-  id, organization_id, session_id, district_id, taluk_id, school_id, si_number,
-  student_name, class_name, section, sex, date_of_birth, age, height_cm,
-  weight_kg, bmi, screening_date, status
-)
-VALUES
-  (current_setting('test.student_one_key')::UUID, '10000000-0000-0000-0000-000000000001', current_setting('test.session_one_id')::UUID, '20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', current_setting('test.school_one_id')::UUID, current_setting('test.student_one_si'), 'Student One', '5', 'A', 'Other', '2015-01-01', 10, 130, 30, 17.75, CURRENT_DATE, 'Pending'),
-  (current_setting('test.student_two_key')::UUID, '10000000-0000-0000-0000-000000000001', current_setting('test.session_two_id')::UUID, '20000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000002', current_setting('test.school_two_id')::UUID, current_setting('test.student_two_si'), 'Student Two', '5', 'A', 'Other', '2015-01-01', 10, 130, 30, 17.75, CURRENT_DATE, 'Pending');
-
-INSERT INTO public.session_assignments (organization_id, session_id, enumerator_id)
-VALUES ('10000000-0000-0000-0000-000000000001', current_setting('test.session_one_id')::UUID, '00000000-0000-0000-0000-000000000003');
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
+SELECT set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000001","role":"authenticated"}', true);
+RESET ROLE;
+SET LOCAL ROLE authenticated;
 
 SELECT public.set_owner_data_grant(
   '00000000-0000-0000-0000-000000000002',
   '00000000-0000-0000-0000-000000000003',
   TRUE
 );
-
-SELECT set_config(
-  'test.viewer_insert_key',
-  '60000000-0000-0000-0000-000000000003',
-  true
-);
-SELECT set_config(
-  'test.viewer_insert_si',
-  public.reserve_student_si_number(
-    current_setting('test.session_one_id')::UUID,
-    '60000000-0000-0000-0000-000000000003'
-  ),
-  true
-);
-RESET ROLE;
 
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000002', true);
 SELECT set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000002","role":"authenticated"}', true);
@@ -213,13 +220,13 @@ SELECT throws_ok(
       weight_kg, bmi, screening_date, status
     )
     VALUES (
-      current_setting('test.viewer_insert_key')::UUID,
+      '60000000-0000-0000-0000-000000000003'::UUID,
       '10000000-0000-0000-0000-000000000001',
       current_setting('test.session_one_id')::UUID,
       '20000000-0000-0000-0000-000000000001',
       '30000000-0000-0000-0000-000000000001',
       current_setting('test.school_one_id')::UUID,
-      current_setting('test.viewer_insert_si'),
+      'SI-VIEWER-INSERT',
       'Viewer Insert Attempt', '5', 'A', 'Other', '2015-01-01', 10, 130, 30,
       17.75, CURRENT_DATE, 'Pending'
     )$$,

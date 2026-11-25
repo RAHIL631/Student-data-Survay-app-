@@ -24,7 +24,8 @@ export function ScreeningSessionsPage() {
   const [saveError, setSaveError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const canCreate = user?.role === 'organization_admin' || user?.role === 'enumerator';
-  const activeFaculty = (users ?? []).filter((member) => member.role === 'enumerator' && member.isActive);
+  const activeFaculty = (users ?? []).filter((member) =>
+    member.role === 'enumerator' && member.isActive && member.approvalStatus === 'approved');
   const activeFacultyIds = new Set(activeFaculty.map((member) => member.id));
   const activeSchools = (schools ?? []).filter((school) => school.status === 'active');
   const availableSchools = activeSchools.filter((school) =>
@@ -32,7 +33,7 @@ export function ScreeningSessionsPage() {
       ? activeFacultyIds.has(school.ownerId ?? '')
       : user?.role === 'enumerator' && school.ownerId === user.id,
   );
-  const schoolChoices = user?.role === 'organization_admin' ? activeSchools : availableSchools;
+  const schoolChoices = availableSchools;
   const matchingSchoolChoices = schoolChoices.filter((school) =>
     `${school.name} ${school.code} ${activeFaculty.find((member) => member.id === school.ownerId)?.name ?? ''}`
       .toLocaleLowerCase()
