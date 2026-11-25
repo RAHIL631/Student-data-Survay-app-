@@ -61,17 +61,25 @@ test('approval uses the authenticated database RPC and only approved active Enum
   const schools = readSource('src/pages/SchoolsPage.tsx');
   const service = readSource('src/lib/dataService.ts');
   const migration = readSource('supabase/migrations/20261206000000_enumerator_approval_contract.sql');
+  const databaseTest = readSource('supabase/tests/database/user_invitations.test.sql');
 
   assert.match(activation, /approveEnumeratorProfile\(profileId\)/);
   assert.match(activation, /onClick=\{\(\) => void approve\(profile\.id\)\}/);
   assert.match(activation, /await reload\(\)/);
-  assert.match(service, /rpc\('approve_enumerator_profile',\s*\{\s*target_profile_id: profileId/s);
+  assert.match(activation, /catch \(approvalError\) \{\s*setActionError\(approvalError instanceof Error \? approvalError\.message/s);
+  assert.match(service, /client\.rpc\('approve_enumerator_profile',\s*\{\s*target_profile_id: profileId/s);
   assert.match(service, /profile\?\.role === 'enumerator'[\s\S]*profile\.is_active[\s\S]*profile\.approval_status === 'approved'/);
   assert.doesNotMatch(service.slice(service.indexOf('export async function approveEnumeratorProfile'), service.indexOf('export async function setProfileActive')), /functions\.invoke|admin-provision-user/);
   assert.match(schools, /member\.role === 'enumerator'[\s\S]*member\.isActive[\s\S]*member\.approvalStatus === 'approved'[\s\S]*member\.districtId === selectedAssignmentSchool\?\.districtId/);
+  assert.match(migration, /IF auth\.uid\(\) IS NULL OR NOT public\.current_profile_is_active\(\)[\s\S]*public\.current_profile_role\(\) <> 'organization_admin'/);
+  assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.approve_enumerator_profile\(UUID\) TO authenticated/);
   assert.match(migration, /public\.current_profile_role\(\) <> 'organization_admin'/);
   assert.match(migration, /target\.organization_id = actor_org|p\.organization_id = actor_org/);
   assert.match(migration, /INSERT INTO public\.audit_logs/);
+  assert.match(databaseTest, /approve_enumerator_profile\('00000000-0000-0000-0000-000000000106'\),\s*TRUE,[\s\S]*?active organization administrator approves/);
+  assert.match(databaseTest, /approve_enumerator_profile\('00000000-0000-0000-0000-000000000106'\),\s*FALSE,[\s\S]*?another organization/);
+  assert.match(databaseTest, /'42501',[\s\S]*?Viewer cannot approve an Enumerator/);
+  assert.match(databaseTest, /action = 'account_approved'[\s\S]*?approval action is recorded in the audit log/);
 });
 
 test('screening faculty choices require approved active Enumerators', () => {

@@ -425,6 +425,15 @@ SELECT is(
 );
 RESET ROLE;
 SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000105', true);
+SELECT set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000105","role":"authenticated"}', true);
+SELECT is(
+  public.approve_enumerator_profile('00000000-0000-0000-0000-000000000106'),
+  FALSE,
+  'organization admin cannot approve a pending Enumerator from another organization'
+);
+RESET ROLE;
+SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000101', true);
 SELECT set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000101","role":"authenticated"}', true);
 SELECT is(
