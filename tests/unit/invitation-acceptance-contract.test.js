@@ -121,6 +121,7 @@ test('invitation preflight is identity-bound and read-only', () => {
 
 test('invitation creation returns safe authorization, district, validation, and conflict codes', () => {
   const edge = readSource('supabase/functions/invite-user/index.ts');
+  const corsPolicy = readSource('supabase/functions/invite-user/cors-policy.js');
   const requestMigration = readSource('supabase/migrations/20261202000000_invitation_preflight_and_safe_request_errors.sql');
   const service = readSource('src/lib/dataService.ts');
 
@@ -128,7 +129,8 @@ test('invitation creation returns safe authorization, district, validation, and 
   assert.match(edge, /requestError\.code === '22023'[\s\S]*invalid_district/);
   assert.match(edge, /request\?\.result_code === 'invalid_request'[\s\S]*invalid_invitation_request/);
   assert.match(edge, /request\.result_code === 'conflict'[\s\S]*invitation_conflict/);
-  assert.match(edge, /defaultInvitationRedirectOrigin = 'https:\/\/student-data-survay-app\.vercel\.app'/);
+  assert.match(edge, /defaultInvitationRedirectOrigin = productionInvitationOrigin/);
+  assert.match(corsPolicy, /productionInvitationOrigin = 'https:\/\/student-data-survay-app\.vercel\.app'/);
   assert.match(requestMigration, /actor\.role <> 'organization_admin'/);
   assert.match(requestMigration, /d\.organization_id = actor\.organization_id/);
   assert.match(requestMigration, /auth\.users AS u/);

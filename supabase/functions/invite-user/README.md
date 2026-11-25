@@ -23,7 +23,9 @@ npx supabase functions serve invite-user
 npm run dev
 ```
 
-By default, the function permits the local Vite origins `http://localhost:5173` and `http://127.0.0.1:5173`. To use another local origin, set `INVITE_ALLOWED_ORIGINS` in the Edge Function runtime environment to a comma-separated list of exact origins (scheme, host, and port; no paths).
+When `INVITE_ALLOWED_ORIGINS` is unset, the function permits the local Vite origins `http://localhost:5173` and `http://127.0.0.1:5173`, plus the production SPA origin `https://student-data-survay-app.vercel.app`. When configured, every listed exact origin is retained and the production SPA origin is added automatically; localhost is not added unless explicitly listed. Duplicate origins are collapsed. Values must include scheme, host, and port where applicable, with no paths.
+
+Allowed request headers are sourced from the matching Supabase JS SDK CORS export so browser preflight remains compatible with SDK retry and optional trace propagation headers. The function still allows only `POST` and `OPTIONS`, and reflects only origins in its allowlist.
 
 Local Auth redirects must allow the SPA URL in the local Supabase configuration. The repository config permits the two standard local Vite origins. Hosted Auth redirect settings are separate and have not been changed.
 

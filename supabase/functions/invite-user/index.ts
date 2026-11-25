@@ -1,7 +1,9 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.119.0';
+import { corsHeaders as supabaseCorsHeaders } from 'npm:@supabase/supabase-js@2.119.0/cors';
 import type { Database } from '../../../src/lib/database.types.ts';
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2.119.0';
 import { classifyInvitationState } from './invitation-state.js';
+import { getAllowedOrigins, getCorsResponseHeaders, isAllowedOrigin, productionInvitationOrigin } from './cors-policy.js';
 
 type InvitationRole = 'district_manager' | 'enumerator';
 type InvitationAction =
@@ -29,17 +31,7 @@ type ExistingInvitationState = {
 };
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const defaultDevelopmentOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173'];
-const defaultInvitationRedirectOrigin = 'https://student-data-survay-app.vercel.app';
-
-function getAllowedOrigins(): Set<string> {
-  const configuredOrigins = Deno.env.get('INVITE_ALLOWED_ORIGINS');
-  return new Set(
-    (configuredOrigins ? configuredOrigins.split(',') : defaultDevelopmentOrigins)
-      .map((origin) => origin.trim())
-      .filter(Boolean),
-  );
-}
+const defaultInvitationRedirectOrigin = productionInvitationOrigin;
 
 function jsonResponse(
   body: Record<string, string>,
@@ -51,12 +43,8 @@ function jsonResponse(
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
     Vary: 'Origin',
+    ...getCorsResponseHeaders(origin, allowedOrigins, supabaseCorsHeaders),
   });
-  if (origin && allowedOrigins.has(origin)) {
-    headers.set('Access-Control-Allow-Origin', origin);
-    headers.set('Access-Control-Allow-Headers', 'authorization, apikey, x-client-info, content-type');
-    headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  }
   return new Response(JSON.stringify(body), { status, headers });
 }
 
@@ -305,18 +293,16 @@ async function handleInvitation(
 
 Deno.serve(async (request) => {
   const origin = request.headers.get('Origin');
-  const allowedOrigins = getAllowedOrigins();
+  const allowedOrigins = getAllowedOrigins(Deno.env.get('INVITE_ALLOWED_ORIGINS'));
 
   if (request.method === 'OPTIONS') {
-    if (origin && !allowedOrigins.has(origin)) {
+    if (!isAllowedOrigin(origin, allowedOrigins)) {
       return jsonResponse({ code: 'origin_not_allowed' }, 403, origin, allowedOrigins);
     }
     return new Response(null, {
       status: 204,
       headers: {
-        ...(origin ? { 'Access-Control-Allow-Origin': origin } : {}),
-        'Access-Control-Allow-Headers': 'authorization, apikey, x-client-info, content-type',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        ...getCorsResponseHeaders(origin, allowedOrigins, supabaseCorsHeaders),
         'Cache-Control': 'no-store',
         Vary: 'Origin',
       },
@@ -326,7 +312,7 @@ Deno.serve(async (request) => {
   if (request.method !== 'POST') {
     return jsonResponse({ code: 'method_not_allowed' }, 405, origin, allowedOrigins);
   }
-  if (origin && !allowedOrigins.has(origin)) {
+  if (!isAllowedOrigin(origin, allowedOrigins)) {
     return jsonResponse({ code: 'origin_not_allowed' }, 403, origin, allowedOrigins);
   }
 
